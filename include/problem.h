@@ -1,6 +1,7 @@
 #ifndef PROBLEM
 #define PROBLEM
 
+
 template <int dim>
 class Problem
 {
@@ -35,8 +36,6 @@ private:
 
 };
 
-
-
 template <int dim> 
 Problem<dim>::Problem()
   :
@@ -65,7 +64,7 @@ Problem<dim>::~Problem()
 
 
 template <int dim>
-void Problem<dim>::setup_system ()
+void Problem<dim>::setup_system()
 {
 
   for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
@@ -82,10 +81,11 @@ void Problem<dim>::setup_system ()
   }
 
 
-  dof_handler.distribute_dofs (fe_collection);
+  dof_handler.distribute_dofs(fe_collection);
+ 
 
-  solution.reinit (dof_handler.n_dofs());
-  system_rhs.reinit (dof_handler.n_dofs());
+  solution.reinit(dof_handler.n_dofs());
+  system_rhs.reinit(dof_handler.n_dofs());
 
 
   constraints.clear();
@@ -105,12 +105,8 @@ void Problem<dim>::setup_system ()
 
 
 
-
-
-
-
 template <int dim>
-void Problem<dim>::assemble_system ()
+void Problem<dim>::assemble_system()
 {
   hp::FEValues<dim> fe_values_hp (fe_collection, q_collection,
                            update_values    |  update_gradients |
@@ -244,19 +240,8 @@ void Problem<dim>::assemble_system ()
 
 
 template <int dim>
-void Problem<dim>::solve ()
+void Problem<dim>::solve()
 {
-
-
-  // std::ostringstream rhs_vector_filename;
-  // rhs_vector_filename << "rhs_vector.out";
-  // std::ofstream rhs_vector_output (rhs_vector_filename.str().c_str());
-  // system_rhs.print(rhs_vector_output, 6, false, false);
-
-  // std::ostringstream matrix_filename;
-  // matrix_filename << "matrix.out";
-  // std::ofstream matrix_output(matrix_filename.str().c_str());
-  // system_matrix.print_formatted(matrix_output, 4, false);
 
 
   std::cout << "Start to solve " << std::endl;
@@ -269,11 +254,33 @@ void Problem<dim>::solve ()
 
   std::cout << "End of solve " << std::endl;
 
+  std::ostringstream rhs_vector_filename;
+  rhs_vector_filename << "rhs_vector.out";
+  std::ofstream rhs_vector_output (rhs_vector_filename.str().c_str());
+  system_rhs.print(rhs_vector_output, 6, false, false);
+
+
 }
 
 
+// template <int dim>
+// void MinimalSurfaceProblem<dim>::solve()
+// {
+//   SolverControl            solver_control(system_rhs.size(),
+//                                system_rhs.l2_norm() * 1e-6);
+//   SolverCG<Vector<double>> solver(solver_control);
+//   PreconditionSSOR<SparseMatrix<double>> preconditioner;
+//   preconditioner.initialize(system_matrix, 1.2);
+//   solver.solve(system_matrix, newton_update, system_rhs, preconditioner);
+//   hanging_node_constraints.distribute(newton_update);
+//   double alpha = determine_step_length();
+//   present_solution.add(alpha, newton_update);
+// }
+
+
+
 template <int dim>
-void Problem<dim>::output_results (unsigned int cycle)
+void Problem<dim>::output_results(unsigned int cycle)
 {
   std::vector<std::string> solution_names;
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -297,13 +304,14 @@ void Problem<dim>::output_results (unsigned int cycle)
 
 
 template <int dim>
-void Problem<dim>::run ()
+void Problem<dim>::run()
 {
 
   unsigned int cycle = 0; 
+
   std::cout << "Cycle " << cycle << ':' << std::endl;
-  GridGenerator::hyper_cube(triangulation, -1, 1);
-  triangulation.refine_global(5);
+  // GridGenerator::hyper_cube(triangulation, -1, 1);
+  // triangulation.refine_global(4);
  
   h = GridTools::minimal_cell_diameter(triangulation);
 
@@ -319,6 +327,7 @@ void Problem<dim>::run ()
   output_results(cycle);
 
 }
+
 
 
 #endif

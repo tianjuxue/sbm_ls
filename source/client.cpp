@@ -70,13 +70,14 @@
 #include "general_utils.h"
 #include "interface.h"
 #include "problem.h"
+#include "controller.h"
 
 
 int main ()
 {
 
   Problem<2> problem;
-  problem.run ();
+  problem.run();
 
   return 0;
 }

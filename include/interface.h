@@ -80,6 +80,5 @@ bool Geometry<dim>::is_surrogate (typename hp::DoFHandler<dim>::cell_iterator &c
 }
 
 
-
-
 #endif
+
