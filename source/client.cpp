@@ -1,3 +1,32 @@
+/*
+//
+//
+//                       _oo0oo_
+//                      o8888888o
+//                      88" . "88      |-------------------------------------|
+//                      (| -_- |)  --> | You shall have no bug in this code. |
+//                      0\  =  /0      |-------------------------------------|
+//                    ___/`---'\___
+//                  .' \\|     |// '.
+//                 / \\|||  :  |||// \
+//                / _||||| -:- |||||- \
+//               |   | \\\  -  /// |   |
+//               | \_|  ''\---/''  |_/ |
+//               \  .-\__  '-'  ___/-. /
+//             ___'. .'  /--.--\  `. .'___
+//          ."" '<  `.___\_<|>_/___.' >' "".
+//         | | :  `- \`.;`\ _ /`;.`/ - ` : | |
+//         \  \ `_.   \_ __\ /__ _/   .-` /  /
+//     =====`-.____`.___ \_____/___.-`___.-'=====
+//                       `=---='
+//
+//
+//     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//              Praying for no bug... lol
+//     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+
 #include <deal.II/meshworker/dof_info.h>
 #include <deal.II/meshworker/integration_info.h>
 #include <deal.II/meshworker/simple.h>
@@ -68,16 +97,14 @@
 #include <math.h>
 
 #include "general_utils.h"
-#include "interface.h"
 #include "problem.h"
 #include "controller.h"
 
 
 int main ()
 {
-
-  Problem<2> problem;
-  problem.run();
+  TimeEvolution<2> TimeEvolution;
+  TimeEvolution.run();
 
   return 0;
 }
