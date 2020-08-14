@@ -50,7 +50,7 @@ void TimeEvolution<dim>::run()
   dof_handler_all.distribute_dofs(fe_collection);
   solution_all.reinit(dof_handler_all.n_dofs());
 
-  initialize_distance_field(dof_handler_all, solution_all);
+  initialize_distance_field(dof_handler_all, solution_all, 0.5);
 
   for (int i = 0; i < time_steps; ++i)
   {
