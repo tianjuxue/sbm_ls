@@ -95,6 +95,7 @@
 #include <fstream>
 #include <string>
 #include <math.h>
+#include <iomanip>
 
 #include "general_utils.h"
 #include "problem.h"
@@ -103,8 +104,18 @@
 
 int main ()
 {
-  TimeEvolution<2> TimeEvolution;
-  TimeEvolution.run();
+  bool debug = true;
+  if (debug)
+  {
+    TimeEvolution<2> TimeEvolution;
+    TimeEvolution.run();
+  }
+  else
+  {
+    TimeEvolution<2> TimeEvolution;
+    TimeEvolution.run();
+  }
+
 
   return 0;
 }

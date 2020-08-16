@@ -16,7 +16,7 @@ template <int dim>
 Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point)
 {
   Tensor<1, dim> vel;
-  vel[0] = 0.0;
+  vel[0] = 0.01;
   vel[1] = 0;
   return vel;
 }
@@ -37,12 +37,12 @@ void sbm_map(std::vector<Point<dim>> &target_points,
              std::vector<Tensor<1, dim>> &distance_vectors,
              const std::vector<Point<dim>> &points,
              int length,
-             hp::DoFHandler<dim> &dof_handler_all,
-             Vector<double> &solution_all)
+             hp::DoFHandler<dim> &dof_handler,
+             Vector<double> &solution)
 {
   for (int i = 0; i < length; ++i)
   {
-    std::cout << std::endl << "  Point is " << points[i] << std::endl;
+    // std::cout << std::endl << "  Point is " << points[i] << std::endl;
     Point<dim> target_point;
     target_point = points[i];
     double phi;
@@ -54,27 +54,27 @@ void sbm_map(std::vector<Point<dim>> &target_points,
     int step = 0;
     while (res > tol)
     {
-      phi = VectorTools::point_value(dof_handler_all, solution_all, target_point);
-      grad_phi = VectorTools::point_gradient(dof_handler_all, solution_all, target_point);
+      phi = VectorTools::point_value(dof_handler, solution, target_point);
+      grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
       res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
       delta1 = -phi * grad_phi / (grad_phi * grad_phi);
       delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
       target_point = target_point + relax_param * (delta1 + delta2);
       step++;
-      std::cout << "  res is " << res << std::endl;
-      std::cout << "  res1 is " << abs(phi) << std::endl;
-      std::cout << "  res2 is " << cross_product_norm(grad_phi, (points[i] - target_point)) << std::endl;
-      std::cout << "  The point found: " << target_point << std::endl;
-      std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
+      // std::cout << "  res is " << res << std::endl;
+      // std::cout << "  res1 is " << abs(phi) << std::endl;
+      // std::cout << "  res2 is " << cross_product_norm(grad_phi, (points[i] - target_point)) << std::endl;
+      // std::cout << "  The point found: " << target_point << std::endl;
+      // std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
     }
-    std::cout << "  Total step is " << step << std::endl;
+    // std::cout << "  Total step is " << step << std::endl;
     target_points[i] = target_point;
     normal_vectors[i] = -grad_phi / grad_phi.norm();
     distance_vectors[i] = target_point - points[i];
-    std::cout << "  The target point found: " << target_point << std::endl;
-    std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
+    // std::cout << "  The target point found: " << target_point << std::endl;
+    // std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
   }
-  std::cout << "  End of this call to sbm_map" << std::endl;
+  // std::cout << "  End of this call to sbm_map" << std::endl;
 }
 
 
@@ -84,8 +84,8 @@ void sbm_map_manual(std::vector<Point<dim>> &target_points,
                     std::vector<Tensor<1, dim>> &distance_vectors,
                     const std::vector<Point<dim>> &points,
                     int length,
-                    hp::DoFHandler<dim> &dof_handler_all,
-                    Vector<double> &solution_all)
+                    hp::DoFHandler<dim> &dof_handler,
+                    Vector<double> &solution)
 {
   for (int i = 0; i < length; ++i)
   {
@@ -140,57 +140,37 @@ void vec2num_grads(std::vector< std::vector< Tensor<1, dim> >> &vec,
 
 
 template <int dim>
-bool is_inside(hp::DoFHandler<dim> &dof_handler_all, Vector<double> &solution_all, Point<dim> &point)
+bool is_inside(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, const Point<dim> &point)
 {
-  return VectorTools::point_value(dof_handler_all, solution_all, point) > 0 ? true : false;
+  return VectorTools::point_value(dof_handler, solution, point) > 0 ? true : false;
 }
 
 template <int dim>
-bool is_inside_manual(hp::DoFHandler<dim> &dof_handler_all, Vector<double> &solution_all, Point<dim> &point)
+bool is_inside_manual(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, const Point<dim> &point)
 {
   return point.norm() < 0.5 ? true : false;
 }
 
 
 template <int dim>
-void set_support_points(hp::DoFHandler<dim> &dof_handler_all, std::vector<Point<dim>> &support_points)
+void set_support_points(hp::DoFHandler<dim> &dof_handler, std::vector<Point<dim>> &support_points)
 {
   hp::MappingCollection<dim> mapping_collection;
   mapping_collection.push_back(MappingQ1<dim>());
-  DoFTools::map_dofs_to_support_points(mapping_collection, dof_handler_all, support_points);
+  DoFTools::map_dofs_to_support_points(mapping_collection, dof_handler, support_points);
 }
 
 
-template <int dim>
-void union_distance_fields(hp::DoFHandler<dim> &dof_handler_all, Vector<double> &solution_all,
-                           hp::DoFHandler<dim> &dof_handler_in, Vector<double> &solution_in,
-                           hp::DoFHandler<dim> &dof_handler_out, Vector<double> &solution_out)
-{
-
-  std::vector<Point<dim>> support_points(dof_handler_all.n_dofs());
-  set_support_points(dof_handler_all, support_points);
-
-  for (unsigned int i = 0; i < dof_handler_all.n_dofs(); i++)
-  {
-    Vector<double> old_solution_all  = solution_all;
-    if (is_inside(dof_handler_all, old_solution_all, support_points[i]))
-      solution_all(i) = VectorTools::point_value(dof_handler_in, solution_in, support_points[i]);
-    else
-      solution_all(i) = VectorTools::point_value(dof_handler_out, solution_out, support_points[i]);
-
-  }
-}
-
 
 template <int dim>
-void initialize_distance_field(hp::DoFHandler<dim> &dof_handler_all, Vector<double> &solution_all, double radius)
+void initialize_distance_field(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, double radius)
 {
   // double radius = 0.5;
-  std::vector<Point<dim>> support_points(dof_handler_all.n_dofs());
-  set_support_points(dof_handler_all, support_points);
-  for (unsigned int i = 0; i < dof_handler_all.n_dofs(); i++)
+  std::vector<Point<dim>> support_points(dof_handler.n_dofs());
+  set_support_points(dof_handler, support_points);
+  for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
   {
-    solution_all(i) = radius - support_points[i].norm();
+    solution(i) = radius - support_points[i].norm();
   }
 }
 
