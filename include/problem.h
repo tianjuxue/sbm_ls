@@ -24,7 +24,6 @@ private:
   double compute_residual();
   void solve(double relaxation_parameter);
 
-
   hp::FECollection<dim>   fe_collection;
   hp::QCollection<dim>    q_collection;
   hp::QCollection < dim - 1 >  q_collection_face;
@@ -44,6 +43,7 @@ private:
 
   double h;
   double alpha;
+  double artificial_viscosity;
 
 };
 
@@ -57,7 +57,8 @@ NonlinearProblem<dim>::NonlinearProblem(Triangulation<dim> &triangulation_,
   triangulation(triangulation_),
   velocity(velocity_),
   h(GridTools::minimal_cell_diameter(triangulation_)),
-  alpha(10.)// Magic number, pick a number you like
+  alpha(100.), // Magic number, pick a number you like
+  artificial_viscosity(0.01)
 {
 
   q_collection.push_back(QGauss<dim>(3));
@@ -81,10 +82,8 @@ NonlinearProblem<dim>::~NonlinearProblem()
 template <int dim>
 void NonlinearProblem<dim>::cache_interface()
 {
-
   cache_distance_vectors.clear();
   cache_boundary_values.clear();
-
 
   std::ofstream raw_file("../data/raw_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
   std::ofstream map_file("../data/map_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
@@ -141,7 +140,6 @@ void NonlinearProblem<dim>::cache_interface()
 template <int dim>
 void NonlinearProblem<dim>::setup_system(bool first_cycle)
 {
-
   dof_handler.distribute_dofs(fe_collection);
 
   if (first_cycle)
@@ -194,7 +192,6 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
 template <int dim>
 void NonlinearProblem<dim>::assemble_system()
 {
-
   system_matrix = 0;
   system_rhs    = 0;
 
@@ -221,8 +218,6 @@ void NonlinearProblem<dim>::assemble_system()
 
   for (; cell != endc; ++cell)
   {
-
-
     fe_values_hp.reinit(cell);
 
     const FEValues<dim> &fe_values = fe_values_hp.get_present_fe_values();
@@ -245,9 +240,9 @@ void NonlinearProblem<dim>::assemble_system()
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       double grad_norm = solution_gradients[q].norm();
-      Tensor<2, dim> A_tensor = (1. - 1. / grad_norm) * unit_tensor +
+      Tensor<2, dim> A_tensor = (1. + artificial_viscosity - 1. / grad_norm) * unit_tensor +
                                 outer_product(solution_gradients[q], solution_gradients[q]) / pow(grad_norm, 3.);
-      double a_scalar = 1. - 1. / grad_norm;
+      double a_scalar = 1. + artificial_viscosity - 1. / grad_norm;
 
       for (unsigned int i = 0; i < dofs_per_cell; ++i)
       {
@@ -295,17 +290,17 @@ void NonlinearProblem<dim>::assemble_system()
         for (unsigned int q = 0; q < n_face_q_points; ++q)
         {
           double grad_norm_face = solution_gradients_face[q].norm();
-          Tensor<2, dim> A_tensor_face = (1. - 1. / grad_norm_face) * unit_tensor +
+          Tensor<2, dim> A_tensor_face = (1. + artificial_viscosity - 1. / grad_norm_face) * unit_tensor +
                                          outer_product(solution_gradients_face[q], solution_gradients_face[q]) / pow(grad_norm_face, 3.);
-          double a_scalar_face = 1. - 1. / grad_norm_face;
+          double a_scalar_face = 1. + artificial_viscosity - 1. / grad_norm_face;
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
           {
             for (unsigned int j = 0; j < dofs_per_cell; ++j)
             {
-              local_matrix(i, j) -= fe_values_face.normal_vector(q) * A_tensor_face *
-                                    fe_values_face.shape_grad(j, q) * fe_values_face.shape_value(i, q) *
-                                    fe_values_face.JxW(q);
+              // local_matrix(i, j) -= fe_values_face.normal_vector(q) * A_tensor_face *
+              //                       fe_values_face.shape_grad(j, q) * fe_values_face.shape_value(i, q) *
+              //                       fe_values_face.JxW(q);
 
               // local_matrix(i, j) -= fe_values_face.normal_vector(q) * A_tensor_face * fe_values_face.shape_grad(i, q) *
               //                       (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
@@ -315,9 +310,9 @@ void NonlinearProblem<dim>::assemble_system()
                                     (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
                                     fe_values_face.JxW(q);
             }
-            local_rhs(i) += fe_values_face.normal_vector(q) * a_scalar_face *
-                            solution_gradients_face[q] * fe_values_face.shape_value(i, q) *
-                            fe_values_face.JxW(q);
+            // local_rhs(i) += fe_values_face.normal_vector(q) * a_scalar_face *
+            //                 solution_gradients_face[q] * fe_values_face.shape_value(i, q) *
+            //                 fe_values_face.JxW(q);
 
             // local_rhs(i) += fe_values_face.normal_vector(q) * A_tensor_face * fe_values_face.shape_grad(i, q) *
             //                 (solution_values_face[q] + solution_gradients_face[q] * distance_vectors[q] - boundary_values[q]) *
@@ -366,7 +361,6 @@ double NonlinearProblem<dim>::compute_residual()
 
   for (; cell != endc; ++cell)
   {
-
     fe_values_hp.reinit(cell);
 
     const FEValues<dim> &fe_values = fe_values_hp.get_present_fe_values();
@@ -387,7 +381,7 @@ double NonlinearProblem<dim>::compute_residual()
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       double grad_norm = solution_gradients[q].norm();
-      double a_scalar = (1. - 1. / grad_norm);
+      double a_scalar = 1. + artificial_viscosity - 1. / grad_norm;
 
       for (unsigned int i = 0; i < dofs_per_cell; ++i)
       {
@@ -431,16 +425,16 @@ double NonlinearProblem<dim>::compute_residual()
         for (unsigned int q = 0; q < n_face_q_points; ++q)
         {
           double grad_norm_face = solution_gradients_face[q].norm();
-          // Tensor<2, dim> A_tensor_face = (1. - 1. / grad_norm_face) * unit_tensor +
+          // Tensor<2, dim> A_tensor_face = (1. + artificial_viscosity - 1. / grad_norm_face) * unit_tensor +
           //                                outer_product(solution_gradients_face[q], solution_gradients_face[q]) /
           //                                pow(grad_norm_face, 3.);
-          double a_scalar_face = (1. - 1. / grad_norm_face);
+          double a_scalar_face = 1. + artificial_viscosity - 1. / grad_norm_face;
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
           {
-            local_rhs(i) -= fe_values_face.normal_vector(q) * a_scalar_face *
-                            solution_gradients_face[q] * fe_values_face.shape_value(i, q) *
-                            fe_values_face.JxW(q);
+            // local_rhs(i) -= fe_values_face.normal_vector(q) * a_scalar_face *
+            //                 solution_gradients_face[q] * fe_values_face.shape_value(i, q) *
+            //                 fe_values_face.JxW(q);
 
             // local_rhs(i) -= fe_values_face.normal_vector(q) * A_tensor_face * fe_values_face.shape_grad(i, q) *
             //                 (solution_values_face[q] + solution_gradients_face[q] * distance_vectors[q] - boundary_values[q]) *
@@ -468,9 +462,7 @@ void NonlinearProblem<dim>::solve(double relaxation_parameter)
   SparseDirectUMFPACK  A_direct;
   A_direct.initialize(system_matrix);
   A_direct.vmult(newton_update, system_rhs);
-
   constraints.distribute(newton_update);
-
   solution.add(relaxation_parameter, newton_update);
 }
 
@@ -524,7 +516,6 @@ void NonlinearProblem<dim>::run(bool first_cycle)
 
       // output_results(newton_step);
       // exit(0);
-
     }
 
     std::cout << "  Start to assemble system" << std::endl;

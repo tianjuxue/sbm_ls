@@ -23,7 +23,7 @@ void TimeEvolution<dim>::run()
   GridGenerator::hyper_cube(triangulation, -1, 1);
   triangulation.refine_global(6);
 
-  int time_steps = 100;
+  int time_steps = 30;
 
   NonlinearProblem<2> nonlinear_problem(triangulation, velocity);
 
