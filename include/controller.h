@@ -36,10 +36,6 @@ void TimeEvolution<dim>::run()
     else
       nonlinear_problem.run(false);
     nonlinear_problem.output_results(i);
-
-    std::cout << "  Number of degrees of freedom (in): "
-              << nonlinear_problem.dof_handler.n_dofs()
-              << std::endl;
   }
 
 }

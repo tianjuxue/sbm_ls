@@ -57,18 +57,22 @@ NonlinearProblem<dim>::NonlinearProblem(Triangulation<dim> &triangulation_,
   triangulation(triangulation_),
   velocity(velocity_),
   h(GridTools::minimal_cell_diameter(triangulation_)),
-  alpha(100.), // Magic number, pick a number you like
-  artificial_viscosity(0.01)
+  // alpha(1e2), // Magic number, may affect numerical instability
+  // artificial_viscosity(1e-3)
+  alpha(1e2), // Magic number, may affect numerical instability
+  artificial_viscosity(0)
 {
 
-  q_collection.push_back(QGauss<dim>(3));
-  q_collection.push_back(QGauss<dim>(3));
+  int fe_degree = 1;
+  fe_collection.push_back(FE_Q<dim>(fe_degree));
+  fe_collection.push_back(FE_Q<dim>(fe_degree));
 
-  q_collection_face.push_back(QGauss < dim - 1 > (2));
-  q_collection_face.push_back(QGauss < dim - 1 > (2));
+  q_collection.push_back(QGauss<dim>(fe_degree + 1));
+  q_collection.push_back(QGauss<dim>(fe_degree + 1));
 
-  fe_collection.push_back(FE_Q<dim>(1));
-  fe_collection.push_back(FE_Q<dim>(1));
+  q_collection_face.push_back(QGauss < dim - 1 > (fe_degree + 1));
+  q_collection_face.push_back(QGauss < dim - 1 > (fe_degree + 1));
+
 }
 
 
@@ -146,7 +150,8 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
   {
     std::cout << "  First cycle setup" << std::endl;
     solution.reinit(dof_handler.n_dofs());
-    initialize_distance_field(dof_handler, solution, 0.5);
+    // initialize_distance_field(dof_handler, solution, 0.5);
+    initialize_distance_field_square(dof_handler, solution, 0.8);
     old_solution = solution;
     output_results(0);
   }
@@ -158,7 +163,6 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
   for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
        cell != dof_handler.end(); ++cell)
   {
-    // cell->set_active_fe_index(1);
     if (is_inside(dof_handler, old_solution, cell->center()))
     {
       cell->set_material_id(0);
@@ -166,8 +170,8 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
     }
     else
       cell->set_material_id(1);
-
   }
+
   std::cout << "  cell counter " << counter << std::endl;
 
   DynamicSparsityPattern dsp(dof_handler.n_dofs());
@@ -508,13 +512,13 @@ void NonlinearProblem<dim>::run(bool first_cycle)
       std::cout << "  Number of active cells: "
                 << triangulation.n_active_cells()
                 << std::endl;
+
       std::cout << "  Number of degrees of freedom: "
                 << dof_handler.n_dofs()
                 << std::endl;
 
       first_step = false;
 
-      // output_results(newton_step);
       // exit(0);
     }
 
@@ -530,7 +534,6 @@ void NonlinearProblem<dim>::run(bool first_cycle)
     std::cout << "  Residual: " << res << std::endl;
     // std::cout << "  Delta phi norm: " << newton_update.l2_norm() << std::endl;
 
-    // output_results(newton_step);
     newton_step++;
   }
 
