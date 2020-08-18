@@ -2,6 +2,7 @@
 #define CONTROLLER_H
 
 #include "problem.h"
+#include "poisson_problem.h"
 
 using namespace dealii;
 
@@ -25,17 +26,19 @@ void TimeEvolution<dim>::run()
 
   int time_steps = 30;
 
-  NonlinearProblem<2> nonlinear_problem(triangulation, velocity);
+  // NonlinearProblem<2> nonlinear_problem(triangulation, velocity);
+  PoissonProblem<2> problem(triangulation, velocity);
+
 
   for (int i = 1; i < time_steps; ++i)
   {
-    nonlinear_problem.cycle_no = i;
+    problem.cycle_no = i;
     std::cout << std::endl << "  cycle: " << i << std::endl;
     if (i == 1)
-      nonlinear_problem.run(true);
+      problem.run(true);
     else
-      nonlinear_problem.run(false);
-    nonlinear_problem.output_results(i);
+      problem.run(false);
+    problem.output_results(i);
   }
 
 }

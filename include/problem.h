@@ -44,7 +44,6 @@ private:
   double h;
   double alpha;
   double artificial_viscosity;
-
 };
 
 
@@ -121,6 +120,9 @@ void NonlinearProblem<dim>::cache_interface()
           std::vector<Point<dim>> quadrature_points = fe_values_face.get_quadrature_points();
           sbm_map(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution);
           compute_boundary_values(velocity, target_points, normal_vectors, boundary_values, n_face_q_points);
+
+          lagrangian_shift(velocity, target_points, distance_vectors, boundary_values, n_face_q_points);
+
           cache_distance_vectors.push_back(distance_vectors);
           cache_boundary_values.push_back(boundary_values);
 
@@ -150,8 +152,11 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
   {
     std::cout << "  First cycle setup" << std::endl;
     solution.reinit(dof_handler.n_dofs());
-    // initialize_distance_field(dof_handler, solution, 0.5);
+    old_solution.reinit(dof_handler.n_dofs());
+
+    // initialize_distance_field_circle(dof_handler, solution, 0.5);
     initialize_distance_field_square(dof_handler, solution, 0.8);
+
     old_solution = solution;
     output_results(0);
   }
@@ -189,8 +194,6 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
 
   cache_interface();
 }
-
-
 
 
 template <int dim>
@@ -270,7 +273,7 @@ void NonlinearProblem<dim>::assemble_system()
         {
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
           {
-            double neumann_boundary_value = 0;
+            double neumann_boundary_value = 0.;
             local_rhs(i) += neumann_boundary_value * fe_values_face.shape_value(i, q) *
                             fe_values_face.JxW(q);
           }
@@ -314,6 +317,7 @@ void NonlinearProblem<dim>::assemble_system()
                                     (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
                                     fe_values_face.JxW(q);
             }
+
             // local_rhs(i) += fe_values_face.normal_vector(q) * a_scalar_face *
             //                 solution_gradients_face[q] * fe_values_face.shape_value(i, q) *
             //                 fe_values_face.JxW(q);
@@ -360,7 +364,7 @@ double NonlinearProblem<dim>::compute_residual()
   cell = dof_handler.begin_active(),
   endc = dof_handler.end();
 
-  // SymmetricTensor<2, dim> unit_tensor = unit_symmetric_tensor<dim>();
+  SymmetricTensor<2, dim> unit_tensor = unit_symmetric_tensor<dim>();
   unsigned int cache_index = 0;
 
   for (; cell != endc; ++cell)
@@ -405,7 +409,7 @@ double NonlinearProblem<dim>::compute_residual()
         {
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
           {
-            double neumann_boundary_value = 0;
+            double neumann_boundary_value = 0.;
             local_rhs(i) -= neumann_boundary_value * fe_values_face.shape_value(i, q) *
                             fe_values_face.JxW(q);
           }
@@ -429,9 +433,9 @@ double NonlinearProblem<dim>::compute_residual()
         for (unsigned int q = 0; q < n_face_q_points; ++q)
         {
           double grad_norm_face = solution_gradients_face[q].norm();
-          // Tensor<2, dim> A_tensor_face = (1. + artificial_viscosity - 1. / grad_norm_face) * unit_tensor +
-          //                                outer_product(solution_gradients_face[q], solution_gradients_face[q]) /
-          //                                pow(grad_norm_face, 3.);
+          Tensor<2, dim> A_tensor_face = (1. + artificial_viscosity - 1. / grad_norm_face) * unit_tensor +
+                                         outer_product(solution_gradients_face[q], solution_gradients_face[q]) /
+                                         pow(grad_norm_face, 3.);
           double a_scalar_face = 1. + artificial_viscosity - 1. / grad_norm_face;
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
@@ -447,6 +451,7 @@ double NonlinearProblem<dim>::compute_residual()
             local_rhs(i) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
                             (solution_values_face[q] + solution_gradients_face[q] * distance_vectors[q] - boundary_values[q]) *
                             fe_values_face.JxW(q);
+
           }
         }
       }
@@ -500,7 +505,7 @@ void NonlinearProblem<dim>::run(bool first_cycle)
   unsigned int newton_step = 0;
   double res = 0;
   bool first_step = true;
-  while ( (first_step || (res > 1e-8)) && newton_step < 500)
+  while ( (first_step || (res > 1e-6)) && newton_step < 500)
   {
     std::cout << std::endl << "  Newton step " << newton_step << std::endl;
     if (first_step)

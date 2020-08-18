@@ -17,7 +17,7 @@ Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point)
 {
   Tensor<1, dim> vel;
   vel[0] = 0.0025;
-  vel[1] = 0;
+  vel[1] = 0.0;
   return vel;
 }
 
@@ -75,10 +75,10 @@ void sbm_map(std::vector<Point<dim>> &target_points,
 
     if (res > tol)
     {
-      while (res > tol)
+      while (abs(phi) > tol)
       {
         relax_param = 0.1;
-        tol = 1e-3;
+        tol = 1e-4;
         phi = VectorTools::point_value(dof_handler, solution, target_point);
         grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
         res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
@@ -87,7 +87,7 @@ void sbm_map(std::vector<Point<dim>> &target_points,
         target_point = target_point + relax_param * (delta1 + delta2);
         step++;
       }
-      std::cout << "  Bad point converge at step " << step << std::endl;
+      std::cout << "  Bad point converge at step " << step << " Potential failure!!!!!!!!!!!!!!!!" << std::endl;
     }
 
     // std::cout << "  Total step is " << step << std::endl;
@@ -129,6 +129,22 @@ void compute_boundary_values(AdvectionVelocity<dim> &velocity,
   for (int i = 0; i < length; ++i)
   {
     boundary_values[i] = velocity.get_velocity(target_points[i]) * normal_vectors[i];
+  }
+}
+
+template <int dim>
+void lagrangian_shift(AdvectionVelocity<dim> &velocity,
+                      std::vector<Point<dim>> &target_points,
+                      std::vector<Tensor<1, dim>> &distance_vectors,
+                      std::vector<double> &boundary_values,
+                      int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    boundary_values[i] = 0;
+    Tensor<1, dim> shift = velocity.get_velocity(target_points[i]);
+    target_points[i] += shift;
+    distance_vectors[i] += shift;
   }
 }
 
@@ -186,7 +202,7 @@ void set_support_points(hp::DoFHandler<dim> &dof_handler, std::vector<Point<dim>
 
 
 template <int dim>
-void initialize_distance_field(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, double radius)
+void initialize_distance_field_circle(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, double radius)
 {
   std::vector<Point<dim>> support_points(dof_handler.n_dofs());
   set_support_points(dof_handler, support_points);

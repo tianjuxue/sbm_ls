@@ -99,6 +99,7 @@
 
 #include "general_utils.h"
 #include "problem.h"
+#include "poisson_problem.h"
 #include "controller.h"
 
 
