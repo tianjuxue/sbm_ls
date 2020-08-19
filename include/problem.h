@@ -158,9 +158,8 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
 
-    initialize_distance_field_circle(dof_handler, solution, 0.5);
-    // initialize_distance_field_square(dof_handler, solution, 0.8);
-
+    // initialize_distance_field_circle(dof_handler, solution, 0.5);
+    initialize_distance_field_square(dof_handler, solution, 0.8);
     old_solution = solution;
     output_results(0);
   }
@@ -399,6 +398,7 @@ double NonlinearProblem<dim>::compute_residual()
       {
         local_rhs(i) += a_scalar * fe_values.shape_grad(i, q) * solution_gradients[q] * fe_values.JxW(q);
       }
+
     }
 
     for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
@@ -520,16 +520,17 @@ void NonlinearProblem<dim>::assemble_system_picard()
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       double grad_norm = solution_gradients[q].norm();
-      // double a_scalar = 1. + artificial_viscosity - 1. / grad_norm;
+      double a_scalar = 1. + artificial_viscosity - 1. / grad_norm;
 
-      double a_scalar = 1.;
+      // std::cout << grad_norm << std::endl;
 
       for (unsigned int i = 0; i < dofs_per_cell; ++i)
       {
         for (unsigned int j = 0; j < dofs_per_cell; ++j)
         {
-          local_matrix(i, j) += fe_values.shape_grad(i, q) * a_scalar * fe_values.shape_grad(j, q) * fe_values.JxW(q);
+          local_matrix(i, j) += fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
         }
+        local_rhs(i) += solution_gradients[q] / grad_norm * fe_values.shape_grad(i, q) * fe_values.JxW(q);
       }
     }
 
@@ -568,24 +569,16 @@ void NonlinearProblem<dim>::assemble_system_picard()
 
         for (unsigned int q = 0; q < n_face_q_points; ++q)
         {
-
-          // for (unsigned int i = 0; i < dofs_per_cell; ++i)
-          // {
-          //   for (unsigned int j = 0; j < dofs_per_cell; ++j)
-          //   {
-          //     local_matrix(i, j) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-          //                           (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
-          //                           fe_values_face.JxW(q);
-          //   }
-          //   local_rhs(i) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-          //                   boundary_values[q] * fe_values_face.JxW(q);
-          // }
-
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
           {
-            local_rhs(i) -= alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-                            (solution_values_face[q] + solution_gradients_face[q] * distance_vectors[q] - boundary_values[q]) *
-                            fe_values_face.JxW(q);
+            for (unsigned int j = 0; j < dofs_per_cell; ++j)
+            {
+              local_matrix(i, j) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+                                    (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
+                                    fe_values_face.JxW(q);
+            }
+            local_rhs(i) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+                            boundary_values[q] * fe_values_face.JxW(q);
           }
         }
       }
@@ -686,6 +679,8 @@ void NonlinearProblem<dim>::run_newton(bool first_cycle)
     // std::cout << "  Delta phi norm: " << newton_update.l2_norm() << std::endl;
 
     newton_step++;
+
+    // output_results(newton_step);
   }
 
   old_solution = solution;
@@ -700,7 +695,7 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
   unsigned int picard_step = 0;
   double res = 0;
   bool first_step = true;
-  while ( (first_step || (res > 1e-6)) && picard_step < 500)
+  while ( (first_step || (res > 5*1e-4)) && picard_step < 1000)
   {
     std::cout << std::endl << "  Picard step " << picard_step << std::endl;
     if (first_step)
@@ -718,9 +713,9 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
                 << std::endl;
 
       first_step = false;
-
-      // exit(0);
     }
+
+
 
     std::cout << "  Start to assemble system" << std::endl;
     assemble_system_picard();
@@ -738,9 +733,9 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
 
     old_solution = solution;
     picard_step++;
+    // output_results(picard_step);
   }
-
-
+  // exit(0);
 
 }
 

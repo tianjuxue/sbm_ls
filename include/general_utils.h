@@ -16,7 +16,7 @@ template <int dim>
 Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point)
 {
   Tensor<1, dim> vel;
-  vel[0] = 0.0025;
+  vel[0] = 0.005;
   vel[1] = 0.0;
   return vel;
 }
@@ -75,10 +75,11 @@ void sbm_map(std::vector<Point<dim>> &target_points,
 
     if (res > tol)
     {
+      std::cout << "  Start of bad point converge at step " << step << " Potential failure!!!!!!!!!!!!!!!!" << std::endl;
       while (abs(phi) > tol)
       {
         relax_param = 0.1;
-        tol = 1e-4;
+        tol = 1e-3;
         phi = VectorTools::point_value(dof_handler, solution, target_point);
         grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
         res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
@@ -87,7 +88,7 @@ void sbm_map(std::vector<Point<dim>> &target_points,
         target_point = target_point + relax_param * (delta1 + delta2);
         step++;
       }
-      std::cout << "  Bad point converge at step " << step << " Potential failure!!!!!!!!!!!!!!!!" << std::endl;
+      std::cout << "  End of bad point converge at step " << step << " Potential failure!!!!!!!!!!!!!!!!" << std::endl;
     }
 
     // std::cout << "  Total step is " << step << std::endl;
@@ -272,6 +273,18 @@ void initialize_distance_field_square(hp::DoFHandler<dim> &dof_handler, Vector<d
   for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
   {
     solution(i) = signed_distance_square(support_points[i], side_length);
+  }
+}
+
+
+template <int dim>
+void initialize_distance_field_linear(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution)
+{
+  std::vector<Point<dim>> support_points(dof_handler.n_dofs());
+  set_support_points(dof_handler, support_points);
+  for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
+  {
+    solution(i) = support_points[i][0] + support_points[i][1];
   }
 }
 

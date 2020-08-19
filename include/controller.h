@@ -24,7 +24,7 @@ void TimeEvolution<dim>::run()
   GridGenerator::hyper_cube(triangulation, -1, 1);
   triangulation.refine_global(6);
 
-  int time_steps = 30;
+  int time_steps = 1000;
 
   NonlinearProblem<2> problem(triangulation, velocity);
   // PoissonProblem<2> problem(triangulation, velocity);

@@ -219,7 +219,6 @@ void PoissonProblem<dim>::setup_system(bool first_cycle)
 template <int dim>
 void PoissonProblem<dim>::assemble_system()
 {
-
   system_matrix = 0;
   system_rhs    = 0;
 
@@ -271,75 +270,72 @@ void PoissonProblem<dim>::assemble_system()
                                  fe_values.shape_grad(j, q) *
                                  fe_values.JxW(q));
         }
-        double source = cell->material_id() == 0 ? 1 : 0;
+        double source = cell->material_id() == 0 ? 1 : 1;
         local_rhs(i) += (fe_values.shape_value(i, q) * source * fe_values.JxW(q));
       }
     }
 
     for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
     {
-      if (!cell->face(face_no)->at_boundary())
+      if (cell->face(face_no)->at_boundary())
       {
-        if (cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1)
+      }
+      else if (cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1)
+      {
+        fe_values_face_hp.reinit(cell, face_no);
+        const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
+        unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
+
+        std::vector<Tensor<1, dim> > distance_vectors = cache_distance_vectors[cache_index];
+        std::vector<double> boundary_values = cache_boundary_values[cache_index];
+        cache_index++;
+
+        for (unsigned int q = 0; q < n_face_q_points; ++q)
         {
 
-          fe_values_face_hp.reinit(cell, face_no);
-          const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
-          unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
-
-          std::vector<Tensor<1, dim> > distance_vectors = cache_distance_vectors[cache_index];
-          std::vector<double> boundary_values = cache_boundary_values[cache_index];
-          cache_index++;
-
-          for (unsigned int q = 0; q < n_face_q_points; ++q)
+          for (unsigned int i = 0; i < dofs_per_cell; ++i)
           {
-
-            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            for (unsigned int j = 0; j < dofs_per_cell; ++j)
             {
-              for (unsigned int j = 0; j < dofs_per_cell; ++j)
-              {
 
-                local_matrix(i, j) -= (fe_values_face.shape_value(i, q) +
-                                       fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-                                      fe_values_face.shape_grad(j, q) *
-                                      fe_values_face.normal_vector(q) *
-                                      fe_values_face.JxW(q);
+              // local_matrix(i, j) -= (fe_values_face.shape_value(i, q) +
+              //                        fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+              //                       fe_values_face.shape_grad(j, q) *
+              //                       fe_values_face.normal_vector(q) *
+              //                       fe_values_face.JxW(q);
 
-                local_matrix(i, j) -= (fe_values_face.shape_value(j, q) +
-                                       fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
-                                      fe_values_face.shape_grad(i, q) *
-                                      fe_values_face.normal_vector(q) *
-                                      fe_values_face.JxW(q);
+              // local_matrix(i, j) -= (fe_values_face.shape_value(j, q) +
+              //                        fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
+              //                       fe_values_face.shape_grad(i, q) *
+              //                       fe_values_face.normal_vector(q) *
+              //                       fe_values_face.JxW(q);
 
-                local_matrix(i, j) += fe_values_face.shape_grad(i, q) * distance_vectors[q] *
-                                      fe_values_face.shape_grad(j, q) * fe_values_face.normal_vector(q) *
-                                      fe_values_face.JxW(q);
+              // local_matrix(i, j) += fe_values_face.shape_grad(i, q) * distance_vectors[q] *
+              //                       fe_values_face.shape_grad(j, q) * fe_values_face.normal_vector(q) *
+              //                       fe_values_face.JxW(q);
 
-                local_matrix(i, j) += alpha / h *
-                                      (fe_values_face.shape_value(j, q) +
-                                       fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
-                                      (fe_values_face.shape_value(i, q) +
-                                       fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-                                      fe_values_face.JxW(q);
-
-              }
-
-              local_rhs(i) -= fe_values_face.shape_grad(i, q) *
-                              fe_values_face.normal_vector(q) *
-                              boundary_values[q] * fe_values_face.JxW(q);
-
-              local_rhs(i) += alpha / h *
-                              (fe_values_face.shape_value(i, q) +
-                               fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-                              boundary_values[q] * fe_values_face.JxW(q);
+              local_matrix(i, j) += alpha / h *
+                                    (fe_values_face.shape_value(j, q) +
+                                     fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
+                                    (fe_values_face.shape_value(i, q) +
+                                     fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+                                    fe_values_face.JxW(q);
 
             }
+
+            // local_rhs(i) -= fe_values_face.shape_grad(i, q) *
+            //                 fe_values_face.normal_vector(q) *
+            //                 boundary_values[q] * fe_values_face.JxW(q);
+
+            local_rhs(i) += alpha / h *
+                            (fe_values_face.shape_value(i, q) +
+                             fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+                            boundary_values[q] * fe_values_face.JxW(q);
+
           }
         }
       }
-
     }
-
     constraints.distribute_local_to_global (local_matrix,
                                             local_rhs,
                                             local_dof_indices,
@@ -348,7 +344,6 @@ void PoissonProblem<dim>::assemble_system()
 
   }
 }
-
 
 
 template <int dim>
