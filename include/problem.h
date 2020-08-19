@@ -10,7 +10,8 @@ public:
   NonlinearProblem(Triangulation<dim> &triangulation_,
                    AdvectionVelocity<dim> &velocity_);
   ~NonlinearProblem();
-  void run(bool first_cycle);
+  void run_newton(bool first_cycle);
+  void run_picard(bool first_cycle);
   void output_results(unsigned int cycle);
   hp::DoFHandler<dim> dof_handler;
   Vector<double> solution;
@@ -20,9 +21,12 @@ public:
 private:
   void cache_interface();
   void setup_system(bool first_cycle);
-  void assemble_system();
+  void assemble_system_newton();
   double compute_residual();
-  void solve(double relaxation_parameter);
+  void assemble_system_picard();
+  void solve_newton(double relaxation_parameter);
+  void solve_picard();
+
 
   hp::FECollection<dim>   fe_collection;
   hp::QCollection<dim>    q_collection;
@@ -154,8 +158,8 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
 
-    // initialize_distance_field_circle(dof_handler, solution, 0.5);
-    initialize_distance_field_square(dof_handler, solution, 0.8);
+    initialize_distance_field_circle(dof_handler, solution, 0.5);
+    // initialize_distance_field_square(dof_handler, solution, 0.8);
 
     old_solution = solution;
     output_results(0);
@@ -197,7 +201,7 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
 
 
 template <int dim>
-void NonlinearProblem<dim>::assemble_system()
+void NonlinearProblem<dim>::assemble_system_newton()
 {
   system_matrix = 0;
   system_rhs    = 0;
@@ -466,13 +470,155 @@ double NonlinearProblem<dim>::compute_residual()
 
 
 template <int dim>
-void NonlinearProblem<dim>::solve(double relaxation_parameter)
+void NonlinearProblem<dim>::assemble_system_picard()
+{
+  system_matrix = 0;
+  system_rhs    = 0;
+
+  hp::FEValues<dim> fe_values_hp (fe_collection, q_collection,
+                                  update_values    |  update_gradients |
+                                  update_quadrature_points  |  update_JxW_values);
+
+  hp::FEFaceValues<dim> fe_values_face_hp (fe_collection, q_collection_face,
+      update_values    |  update_gradients |
+      update_quadrature_points  |  update_JxW_values |
+      update_normal_vectors);
+
+
+  FullMatrix<double>   local_matrix;
+  Vector<double>       local_rhs;
+  std::vector<types::global_dof_index> local_dof_indices;
+
+  typename hp::DoFHandler<dim>::active_cell_iterator
+  cell = dof_handler.begin_active(),
+  endc = dof_handler.end();
+
+  SymmetricTensor<2, dim> unit_tensor = unit_symmetric_tensor<dim>();
+  unsigned int cache_index = 0;
+
+  for (; cell != endc; ++cell)
+  {
+    fe_values_hp.reinit(cell);
+
+    const FEValues<dim> &fe_values = fe_values_hp.get_present_fe_values();
+    unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
+    unsigned int n_q_points    = fe_values.n_quadrature_points;
+
+    local_matrix.reinit(dofs_per_cell, dofs_per_cell);
+    local_rhs.reinit(dofs_per_cell);
+    local_dof_indices.resize(dofs_per_cell);
+
+    local_matrix = 0;
+    local_rhs = 0;
+    cell->get_dof_indices(local_dof_indices);
+
+    std::vector<double> solution_values(n_q_points);
+    fe_values.get_function_values(solution, solution_values);
+    std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
+    fe_values.get_function_gradients(solution, solution_gradients);
+
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      double grad_norm = solution_gradients[q].norm();
+      // double a_scalar = 1. + artificial_viscosity - 1. / grad_norm;
+
+      double a_scalar = 1.;
+
+      for (unsigned int i = 0; i < dofs_per_cell; ++i)
+      {
+        for (unsigned int j = 0; j < dofs_per_cell; ++j)
+        {
+          local_matrix(i, j) += fe_values.shape_grad(i, q) * a_scalar * fe_values.shape_grad(j, q) * fe_values.JxW(q);
+        }
+      }
+    }
+
+    for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
+    {
+      if (cell->face(face_no)->at_boundary()) /* Exterior boundary */
+      {
+        fe_values_face_hp.reinit(cell, face_no);
+        const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
+        unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
+
+        for (unsigned int q = 0; q < n_face_q_points; ++q)
+        {
+          for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          {
+            double neumann_boundary_value = 0.;
+            local_rhs(i) += neumann_boundary_value * fe_values_face.shape_value(i, q) *
+                            fe_values_face.JxW(q);
+          }
+        }
+      }
+      else if (cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1)
+      {
+        fe_values_face_hp.reinit(cell, face_no);
+        const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
+        unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
+
+        std::vector<Tensor<1, dim> > distance_vectors = cache_distance_vectors[cache_index];
+        std::vector<double> boundary_values = cache_boundary_values[cache_index];
+        cache_index++;
+
+        std::vector<double> solution_values_face(n_face_q_points);
+        fe_values_face.get_function_values(solution, solution_values_face);
+        std::vector<Tensor<1, dim>> solution_gradients_face(n_face_q_points);
+        fe_values_face.get_function_gradients(solution, solution_gradients_face);
+
+        for (unsigned int q = 0; q < n_face_q_points; ++q)
+        {
+
+          // for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          // {
+          //   for (unsigned int j = 0; j < dofs_per_cell; ++j)
+          //   {
+          //     local_matrix(i, j) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+          //                           (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
+          //                           fe_values_face.JxW(q);
+          //   }
+          //   local_rhs(i) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+          //                   boundary_values[q] * fe_values_face.JxW(q);
+          // }
+
+          for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          {
+            local_rhs(i) -= alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+                            (solution_values_face[q] + solution_gradients_face[q] * distance_vectors[q] - boundary_values[q]) *
+                            fe_values_face.JxW(q);
+          }
+        }
+      }
+    }
+    constraints.distribute_local_to_global(local_matrix,
+                                           local_rhs,
+                                           local_dof_indices,
+                                           system_matrix,
+                                           system_rhs);
+
+  }
+}
+
+
+
+template <int dim>
+void NonlinearProblem<dim>::solve_newton(double relaxation_parameter)
 {
   SparseDirectUMFPACK  A_direct;
   A_direct.initialize(system_matrix);
   A_direct.vmult(newton_update, system_rhs);
   constraints.distribute(newton_update);
   solution.add(relaxation_parameter, newton_update);
+}
+
+
+template <int dim>
+void NonlinearProblem<dim>::solve_picard()
+{
+  SparseDirectUMFPACK  A_direct;
+  A_direct.initialize(system_matrix);
+  A_direct.vmult(solution, system_rhs);
+  constraints.distribute(solution);
 }
 
 
@@ -500,7 +646,7 @@ void NonlinearProblem<dim>::output_results(unsigned int cycle)
 
 
 template <int dim>
-void NonlinearProblem<dim>::run(bool first_cycle)
+void NonlinearProblem<dim>::run_newton(bool first_cycle)
 {
   unsigned int newton_step = 0;
   double res = 0;
@@ -528,11 +674,11 @@ void NonlinearProblem<dim>::run(bool first_cycle)
     }
 
     std::cout << "  Start to assemble system" << std::endl;
-    assemble_system();
+    assemble_system_newton();
     std::cout << "  End of assemble system" << std::endl;
 
     std::cout << "  Start to solve..." << std::endl;
-    solve(0.6);
+    solve_newton(0.6);
     std::cout << "  End of solve" << std::endl;
 
     res = compute_residual();
@@ -543,6 +689,58 @@ void NonlinearProblem<dim>::run(bool first_cycle)
   }
 
   old_solution = solution;
+
+}
+
+
+
+template <int dim>
+void NonlinearProblem<dim>::run_picard(bool first_cycle)
+{
+  unsigned int picard_step = 0;
+  double res = 0;
+  bool first_step = true;
+  while ( (first_step || (res > 1e-6)) && picard_step < 500)
+  {
+    std::cout << std::endl << "  Picard step " << picard_step << std::endl;
+    if (first_step)
+    {
+      std::cout << "  Start to set up system" << std::endl;
+      setup_system(first_cycle);
+      std::cout << "  End of set up system" << std::endl;
+
+      std::cout << "  Number of active cells: "
+                << triangulation.n_active_cells()
+                << std::endl;
+
+      std::cout << "  Number of degrees of freedom: "
+                << dof_handler.n_dofs()
+                << std::endl;
+
+      first_step = false;
+
+      // exit(0);
+    }
+
+    std::cout << "  Start to assemble system" << std::endl;
+    assemble_system_picard();
+    std::cout << "  End of assemble system" << std::endl;
+
+    std::cout << "  Start to solve..." << std::endl;
+    solve_picard();
+    std::cout << "  End of solve" << std::endl;
+
+    Vector<double>  delta_solution = solution;
+    delta_solution.sadd(-1, old_solution);
+
+    res = delta_solution.l2_norm();
+    std::cout << "  Delta phi norm: " << res  << std::endl;
+
+    old_solution = solution;
+    picard_step++;
+  }
+
+
 
 }
 

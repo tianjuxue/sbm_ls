@@ -26,8 +26,8 @@ void TimeEvolution<dim>::run()
 
   int time_steps = 30;
 
-  // NonlinearProblem<2> nonlinear_problem(triangulation, velocity);
-  PoissonProblem<2> problem(triangulation, velocity);
+  NonlinearProblem<2> problem(triangulation, velocity);
+  // PoissonProblem<2> problem(triangulation, velocity);
 
 
   for (int i = 1; i < time_steps; ++i)
@@ -35,9 +35,9 @@ void TimeEvolution<dim>::run()
     problem.cycle_no = i;
     std::cout << std::endl << "  cycle: " << i << std::endl;
     if (i == 1)
-      problem.run(true);
+      problem.run_picard(true);
     else
-      problem.run(false);
+      problem.run_picard(false);
     problem.output_results(i);
   }
 
