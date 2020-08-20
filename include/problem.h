@@ -171,6 +171,8 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
   for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
        cell != dof_handler.end(); ++cell)
   {
+
+
     if (is_inside(dof_handler, old_solution, cell->center()))
     {
       cell->set_material_id(0);
@@ -178,6 +180,19 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
     }
     else
       cell->set_material_id(1);
+
+
+    // if (is_inside(dof_handler, old_solution, cell->vertex(0)) &&
+    //     is_inside(dof_handler, old_solution, cell->vertex(1)) &&
+    //     is_inside(dof_handler, old_solution, cell->vertex(2)) &&
+    //     is_inside(dof_handler, old_solution, cell->vertex(3)))
+    // {
+    //   cell->set_material_id(0);
+    //   counter++;
+    // }
+    // else
+    //   cell->set_material_id(1);
+
   }
 
   std::cout << "  cell counter " << counter << std::endl;
@@ -695,7 +710,7 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
   unsigned int picard_step = 0;
   double res = 0;
   bool first_step = true;
-  while ( (first_step || (res > 5*1e-4)) && picard_step < 1000)
+  while ( (first_step || (res > 1e-3)) && picard_step < 1000)
   {
     std::cout << std::endl << "  Picard step " << picard_step << std::endl;
     if (first_step)
@@ -712,6 +727,8 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
                 << dof_handler.n_dofs()
                 << std::endl;
 
+      initialize_distance_field_quadratic(dof_handler, solution);
+
       first_step = false;
     }
 
@@ -727,7 +744,6 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
 
     Vector<double>  delta_solution = solution;
     delta_solution.sadd(-1, old_solution);
-
     res = delta_solution.l2_norm();
     std::cout << "  Delta phi norm: " << res  << std::endl;
 

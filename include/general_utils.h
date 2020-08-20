@@ -16,7 +16,7 @@ template <int dim>
 Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point)
 {
   Tensor<1, dim> vel;
-  vel[0] = 0.005;
+  vel[0] = 0.0025;
   vel[1] = 0.0;
   return vel;
 }
@@ -285,6 +285,18 @@ void initialize_distance_field_linear(hp::DoFHandler<dim> &dof_handler, Vector<d
   for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
   {
     solution(i) = support_points[i][0] + support_points[i][1];
+  }
+}
+
+
+template <int dim>
+void initialize_distance_field_quadratic(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution)
+{
+  std::vector<Point<dim>> support_points(dof_handler.n_dofs());
+  set_support_points(dof_handler, support_points);
+  for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
+  {
+    solution(i) = 1 - support_points[i][0] * support_points[i][0] - support_points[i][1] * support_points[i][1];
   }
 }
 
