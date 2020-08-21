@@ -171,28 +171,16 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
   for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
        cell != dof_handler.end(); ++cell)
   {
-
-
-    if (is_inside(dof_handler, old_solution, cell->center()))
+    if (old_solution(cell->vertex_dof_index(0, 0, 0)) > 0 &&
+        old_solution(cell->vertex_dof_index(1, 0, 0)) > 0 &&
+        old_solution(cell->vertex_dof_index(2, 0, 0)) > 0 &&
+        old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
     {
       cell->set_material_id(0);
       counter++;
     }
     else
       cell->set_material_id(1);
-
-
-    // if (is_inside(dof_handler, old_solution, cell->vertex(0)) &&
-    //     is_inside(dof_handler, old_solution, cell->vertex(1)) &&
-    //     is_inside(dof_handler, old_solution, cell->vertex(2)) &&
-    //     is_inside(dof_handler, old_solution, cell->vertex(3)))
-    // {
-    //   cell->set_material_id(0);
-    //   counter++;
-    // }
-    // else
-    //   cell->set_material_id(1);
-
   }
 
   std::cout << "  cell counter " << counter << std::endl;
@@ -535,7 +523,9 @@ void NonlinearProblem<dim>::assemble_system_picard()
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       double grad_norm = solution_gradients[q].norm();
-      double a_scalar = 1. + artificial_viscosity - 1. / grad_norm;
+      // Tensor<1, dim> part_d = grad_norm > 1 ? solution_gradients[q] / grad_norm : solution_gradients[q] * (2 - grad_norm);
+      Tensor<1, dim> part_d = solution_gradients[q] / grad_norm;
+
 
       // std::cout << grad_norm << std::endl;
 
@@ -545,7 +535,7 @@ void NonlinearProblem<dim>::assemble_system_picard()
         {
           local_matrix(i, j) += fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
         }
-        local_rhs(i) += solution_gradients[q] / grad_norm * fe_values.shape_grad(i, q) * fe_values.JxW(q);
+        local_rhs(i) += part_d * fe_values.shape_grad(i, q) * fe_values.JxW(q);
       }
     }
 
@@ -727,7 +717,8 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
                 << dof_handler.n_dofs()
                 << std::endl;
 
-      initialize_distance_field_quadratic(dof_handler, solution);
+      // For debugging
+      // initialize_distance_field_quadratic(dof_handler, solution);
 
       first_step = false;
     }
