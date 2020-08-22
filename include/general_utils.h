@@ -8,16 +8,21 @@ template <int dim>
 class AdvectionVelocity
 {
 public:
-  Tensor<1, dim> get_velocity(Point<dim> &point);
+  Tensor<1, dim> get_velocity(Point<dim> &point, double time);
 };
 
 
 template <int dim>
-Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point)
+Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point, double time)
 {
   Tensor<1, dim> vel;
-  vel[0] = 0.0025;
-  vel[1] = 0.0;
+  // vel[0] = 1.;
+  // vel[1] = 0.0;
+
+  double T = 2;
+  vel[0] = -2 * sin(M_PI * point[0]) * sin(M_PI * point[0]) * cos(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
+  vel[1] = 2 * cos(M_PI * point[0]) * sin(M_PI * point[0]) * sin(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
+
   return vel;
 }
 
@@ -47,48 +52,52 @@ void sbm_map(std::vector<Point<dim>> &target_points,
     target_point = points[i];
     double phi;
     Tensor<1, dim> grad_phi;
-    double tol = 1e-4;
+    double tol = 1e-5;
     double res = 1.;
     double relax_param = 1.;
     Tensor<1, dim> delta1, delta2;
     int step = 0;
     int max_step = 100;
+
+    phi = VectorTools::point_value(dof_handler, solution, target_point);
+    grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+
     while (res > tol && step < max_step)
     {
-      phi = VectorTools::point_value(dof_handler, solution, target_point);
-      grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
-
-      res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
-      // std::cout << "  res is " << res << std::endl;
-      // std::cout << "  res1 is " << abs(phi) << std::endl;
-      // std::cout << "  res2 is " << cross_product_norm(grad_phi, (points[i] - target_point)) << std::endl;
-
       delta1 = -phi * grad_phi / (grad_phi * grad_phi);
       delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
       target_point = target_point + relax_param * (delta1 + delta2);
 
+      phi = VectorTools::point_value(dof_handler, solution, target_point);
+      grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+      res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
       step++;
 
+      // std::cout << "  res is " << res << std::endl;
+      // std::cout << "  res1 is " << abs(phi) << std::endl;
+      // std::cout << "  res2 is " << cross_product_norm(grad_phi, (points[i] - target_point)) << std::endl;
       // std::cout << "  The point found: " << target_point << std::endl;
       // std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
     }
 
     if (res > tol)
     {
-      std::cout << "  Start of bad point converge at step " << step << " Potential failure!!!!!!!!!!!!!!!!" << std::endl;
+      tol = 1e-5;
+      relax_param = 0.1;
       while (abs(phi) > tol)
       {
-        relax_param = 0.1;
-        tol = 1e-3;
+        delta1 = -phi * grad_phi / (grad_phi * grad_phi);
+        // delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
+        // target_point = target_point + relax_param * (delta1 + delta2);
+        target_point = target_point + relax_param * (delta1);
+
         phi = VectorTools::point_value(dof_handler, solution, target_point);
         grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
-        res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
-        delta1 = -phi * grad_phi / (grad_phi * grad_phi);
-        delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
-        target_point = target_point + relax_param * (delta1 + delta2);
+        res = abs(phi);
         step++;
       }
-      std::cout << "  End of bad point converge at step " << step << " Potential failure!!!!!!!!!!!!!!!!" << std::endl;
+      std::cout << "  End of bad point converge at step " << step << " mapped point " << target_point << " phi value " << phi << std::endl;
+
     }
 
     // std::cout << "  Total step is " << step << std::endl;
@@ -97,8 +106,15 @@ void sbm_map(std::vector<Point<dim>> &target_points,
     distance_vectors[i] = target_point - points[i];
     // std::cout << "  The target point found: " << target_point << std::endl;
     // std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
+
+    std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
+              << " phi value "  << VectorTools::point_value(dof_handler, solution, target_point)
+              << " mapped points " << target_point << std::endl;
+
   }
-  std::cout << "  End of this call to sbm_map, target points[0]: " << target_points[0] << std::endl << std::endl;
+
+  std::cout << std::endl;
+
 }
 
 
@@ -120,30 +136,20 @@ void sbm_map_manual(std::vector<Point<dim>> &target_points,
 }
 
 
-template <int dim>
-void compute_boundary_values(AdvectionVelocity<dim> &velocity,
-                             std::vector<Point<dim>> &target_points,
-                             std::vector<Tensor<1, dim>> &normal_vectors,
-                             std::vector<double> &boundary_values,
-                             int length)
-{
-  for (int i = 0; i < length; ++i)
-  {
-    boundary_values[i] = velocity.get_velocity(target_points[i]) * normal_vectors[i];
-  }
-}
 
 template <int dim>
 void lagrangian_shift(AdvectionVelocity<dim> &velocity,
                       std::vector<Point<dim>> &target_points,
                       std::vector<Tensor<1, dim>> &distance_vectors,
                       std::vector<double> &boundary_values,
+                      double dt,
+                      double time,
                       int length)
 {
   for (int i = 0; i < length; ++i)
   {
     boundary_values[i] = 0;
-    Tensor<1, dim> shift = velocity.get_velocity(target_points[i]);
+    Tensor<1, dim> shift = velocity.get_velocity(target_points[i], time) * dt;
     target_points[i] += shift;
     distance_vectors[i] += shift;
   }
@@ -203,13 +209,15 @@ void set_support_points(hp::DoFHandler<dim> &dof_handler, std::vector<Point<dim>
 
 
 template <int dim>
-void initialize_distance_field_circle(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, double radius)
+void initialize_distance_field_circle(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, const Point<dim> &center, double radius)
 {
+
   std::vector<Point<dim>> support_points(dof_handler.n_dofs());
   set_support_points(dof_handler, support_points);
   for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
   {
-    solution(i) = radius - support_points[i].norm();
+    Tensor<1, dim> rel_pos = support_points[i] - center;
+    solution(i) = radius - rel_pos.norm();
   }
 }
 
@@ -228,51 +236,53 @@ double min_multiple(std::vector<double> &v)
 
 
 template <int dim>
-double signed_distance_square(Point<dim> &point, double side_length)
+double signed_distance_square(Point<dim> &point, const Point<dim> &center, double side_length)
 {
+  Tensor<1, dim> rel_pos = point - center;
+
   double half_side = side_length / 2.;
-  double upper_left_corner_dist  = sqrt(pow(point[0] + half_side, 2) + pow(point[1] - half_side, 2));
-  double upper_right_corner_dist = sqrt(pow(point[0] - half_side, 2) + pow(point[1] - half_side, 2));
-  double lower_left_corner_dist  = sqrt(pow(point[0] + half_side, 2) + pow(point[1] + half_side, 2));
-  double lower_right_corner_dist = sqrt(pow(point[0] - half_side, 2) + pow(point[1] + half_side, 2));
-  double left_side_dist  = abs(point[0] + half_side);
-  double right_side_dist = abs(point[0] - half_side);
-  double upper_side_dist = abs(point[1] - half_side);
-  double lower_side_dist = abs(point[1] + half_side);
+  double upper_left_corner_dist  = sqrt(pow(rel_pos[0] + half_side, 2) + pow(rel_pos[1] - half_side, 2));
+  double upper_right_corner_dist = sqrt(pow(rel_pos[0] - half_side, 2) + pow(rel_pos[1] - half_side, 2));
+  double lower_left_corner_dist  = sqrt(pow(rel_pos[0] + half_side, 2) + pow(rel_pos[1] + half_side, 2));
+  double lower_right_corner_dist = sqrt(pow(rel_pos[0] - half_side, 2) + pow(rel_pos[1] + half_side, 2));
+  double left_side_dist  = abs(rel_pos[0] + half_side);
+  double right_side_dist = abs(rel_pos[0] - half_side);
+  double upper_side_dist = abs(rel_pos[1] - half_side);
+  double lower_side_dist = abs(rel_pos[1] + half_side);
   std::vector<double> v_corners{upper_left_corner_dist, upper_right_corner_dist, lower_left_corner_dist, lower_right_corner_dist};
   std::vector<double> v_sides{left_side_dist, right_side_dist, upper_side_dist, lower_side_dist};
 
   double dist;
-  if ((point[0] > half_side  & point[1] > half_side)  ||
-      (point[0] > half_side  & point[1] < -half_side) ||
-      (point[0] < -half_side & point[1] > half_side)  ||
-      (point[0] < -half_side & point[1] < -half_side))
+  if ((rel_pos[0] > half_side  & rel_pos[1] > half_side)  ||
+      (rel_pos[0] > half_side  & rel_pos[1] < -half_side) ||
+      (rel_pos[0] < -half_side & rel_pos[1] > half_side)  ||
+      (rel_pos[0] < -half_side & rel_pos[1] < -half_side))
     dist = min_multiple(v_corners);
-  else if (point[0] > half_side)
+  else if (rel_pos[0] > half_side)
     dist = right_side_dist;
-  else if (point[0] < -half_side)
+  else if (rel_pos[0] < -half_side)
     dist = left_side_dist;
-  else if (point[1] > half_side)
+  else if (rel_pos[1] > half_side)
     dist = upper_side_dist;
-  else if (point[1] < -half_side)
+  else if (rel_pos[1] < -half_side)
     dist = lower_side_dist;
   else
     dist = min_multiple(v_sides);
 
-  double sign = point[0] < half_side & point[0] > -half_side & point[1] < half_side & point[1] > -half_side ? 1. : -1.;
+  double sign = rel_pos[0] < half_side & rel_pos[0] > -half_side & rel_pos[1] < half_side & rel_pos[1] > -half_side ? 1. : -1.;
 
   return sign * dist;
 }
 
 
 template <int dim>
-void initialize_distance_field_square(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, double side_length)
+void initialize_distance_field_square(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, const Point<dim> &center, double side_length)
 {
   std::vector<Point<dim>> support_points(dof_handler.n_dofs());
   set_support_points(dof_handler, support_points);
   for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
   {
-    solution(i) = signed_distance_square(support_points[i], side_length);
+    solution(i) = signed_distance_square(support_points[i], center, side_length);
   }
 }
 
@@ -290,13 +300,14 @@ void initialize_distance_field_linear(hp::DoFHandler<dim> &dof_handler, Vector<d
 
 
 template <int dim>
-void initialize_distance_field_quadratic(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution)
+void initialize_distance_field_quadratic(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, const Point<dim> &center)
 {
   std::vector<Point<dim>> support_points(dof_handler.n_dofs());
   set_support_points(dof_handler, support_points);
   for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
   {
-    solution(i) = 1 - support_points[i][0] * support_points[i][0] - support_points[i][1] * support_points[i][1];
+    Tensor<1, dim> rel_pos = support_points[i] - center;
+    solution(i) = 0.25 - rel_pos[0] * rel_pos[0] - rel_pos[1] * rel_pos[1];
   }
 }
 

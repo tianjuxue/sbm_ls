@@ -8,7 +8,8 @@ class NonlinearProblem
 {
 public:
   NonlinearProblem(Triangulation<dim> &triangulation_,
-                   AdvectionVelocity<dim> &velocity_);
+                   AdvectionVelocity<dim> &velocity_,
+                   double dt_);
   ~NonlinearProblem();
   void run_newton(bool first_cycle);
   void run_picard(bool first_cycle);
@@ -24,6 +25,7 @@ private:
   void assemble_system_newton();
   double compute_residual();
   void assemble_system_picard();
+  void assemble_system_poisson();
   void solve_newton(double relaxation_parameter);
   void solve_picard();
 
@@ -48,12 +50,16 @@ private:
   double h;
   double alpha;
   double artificial_viscosity;
+
+  double dt;
+  int time_step;
 };
 
 
 template <int dim>
 NonlinearProblem<dim>::NonlinearProblem(Triangulation<dim> &triangulation_,
-                                        AdvectionVelocity<dim> &velocity_)
+                                        AdvectionVelocity<dim> &velocity_,
+                                        double dt_)
   :
   cycle_no(0),
   dof_handler(triangulation_),
@@ -63,10 +69,12 @@ NonlinearProblem<dim>::NonlinearProblem(Triangulation<dim> &triangulation_,
   // alpha(1e2), // Magic number, may affect numerical instability
   // artificial_viscosity(1e-3)
   alpha(1e2), // Magic number, may affect numerical instability
-  artificial_viscosity(0)
+  artificial_viscosity(0),
+  dt(dt_),
+  time_step(0)
 {
 
-  int fe_degree = 1;
+  int fe_degree = 2;
   fe_collection.push_back(FE_Q<dim>(fe_degree));
   fe_collection.push_back(FE_Q<dim>(fe_degree));
 
@@ -123,12 +131,7 @@ void NonlinearProblem<dim>::cache_interface()
           std::vector<double> boundary_values(n_face_q_points);
           std::vector<Point<dim>> quadrature_points = fe_values_face.get_quadrature_points();
           sbm_map(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution);
-          compute_boundary_values(velocity, target_points, normal_vectors, boundary_values, n_face_q_points);
-
-          lagrangian_shift(velocity, target_points, distance_vectors, boundary_values, n_face_q_points);
-
-          cache_distance_vectors.push_back(distance_vectors);
-          cache_boundary_values.push_back(boundary_values);
+          // compute_boundary_values(velocity, target_points, normal_vectors, boundary_values, n_face_q_points);
 
           for (unsigned int i = 0; i < n_face_q_points; ++i)
           {
@@ -136,6 +139,10 @@ void NonlinearProblem<dim>::cache_interface()
             map_file << std::fixed << std::setprecision(8) << target_points[i][0] << " " << target_points[i][1] << std::endl;
             bv_file << std::fixed << std::setprecision(8) << boundary_values[i] << std::endl;
           }
+
+          lagrangian_shift(velocity, target_points, distance_vectors, boundary_values, dt, dt * time_step, n_face_q_points);
+          cache_distance_vectors.push_back(distance_vectors);
+          cache_boundary_values.push_back(boundary_values);
 
         }
       }
@@ -158,8 +165,10 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
 
-    // initialize_distance_field_circle(dof_handler, solution, 0.5);
-    initialize_distance_field_square(dof_handler, solution, 0.8);
+    // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.5), 0.25);
+    // initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
+    initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
+
     old_solution = solution;
     output_results(0);
   }
@@ -171,9 +180,9 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
   for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
        cell != dof_handler.end(); ++cell)
   {
-    if (old_solution(cell->vertex_dof_index(0, 0, 0)) > 0 &&
-        old_solution(cell->vertex_dof_index(1, 0, 0)) > 0 &&
-        old_solution(cell->vertex_dof_index(2, 0, 0)) > 0 &&
+    if (old_solution(cell->vertex_dof_index(0, 0, 0)) +
+        old_solution(cell->vertex_dof_index(1, 0, 0)) +
+        old_solution(cell->vertex_dof_index(2, 0, 0)) +
         old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
     {
       cell->set_material_id(0);
@@ -183,7 +192,7 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
       cell->set_material_id(1);
   }
 
-  std::cout << "  cell counter " << counter << std::endl;
+  std::cout << "  Number of surrogate cells " << counter << std::endl;
 
   DynamicSparsityPattern dsp(dof_handler.n_dofs());
   DoFTools::make_sparsity_pattern(dof_handler,
@@ -526,9 +535,6 @@ void NonlinearProblem<dim>::assemble_system_picard()
       // Tensor<1, dim> part_d = grad_norm > 1 ? solution_gradients[q] / grad_norm : solution_gradients[q] * (2 - grad_norm);
       Tensor<1, dim> part_d = solution_gradients[q] / grad_norm;
 
-
-      // std::cout << grad_norm << std::endl;
-
       for (unsigned int i = 0; i < dofs_per_cell; ++i)
       {
         for (unsigned int j = 0; j < dofs_per_cell; ++j)
@@ -599,6 +605,80 @@ void NonlinearProblem<dim>::assemble_system_picard()
 
 
 
+
+template <int dim>
+void NonlinearProblem<dim>::assemble_system_poisson()
+{
+  system_matrix = 0;
+  system_rhs    = 0;
+
+  hp::FEValues<dim> fe_values_hp (fe_collection, q_collection,
+                                  update_values    |  update_gradients |
+                                  update_quadrature_points  |  update_JxW_values);
+
+  hp::FEFaceValues<dim> fe_values_face_hp (fe_collection, q_collection_face,
+      update_values    |  update_gradients |
+      update_quadrature_points  |  update_JxW_values |
+      update_normal_vectors);
+
+
+  FullMatrix<double>   local_matrix;
+  Vector<double>       local_rhs;
+  std::vector<types::global_dof_index> local_dof_indices;
+
+  typename hp::DoFHandler<dim>::active_cell_iterator
+  cell = dof_handler.begin_active(),
+  endc = dof_handler.end();
+
+  SymmetricTensor<2, dim> unit_tensor = unit_symmetric_tensor<dim>();
+  unsigned int cache_index = 0;
+
+  for (; cell != endc; ++cell)
+  {
+    fe_values_hp.reinit(cell);
+
+    const FEValues<dim> &fe_values = fe_values_hp.get_present_fe_values();
+    unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
+    unsigned int n_q_points    = fe_values.n_quadrature_points;
+
+    local_matrix.reinit(dofs_per_cell, dofs_per_cell);
+    local_rhs.reinit(dofs_per_cell);
+    local_dof_indices.resize(dofs_per_cell);
+
+    local_matrix = 0;
+    local_rhs = 0;
+    cell->get_dof_indices(local_dof_indices);
+
+    std::vector<double> solution_values(n_q_points);
+    fe_values.get_function_values(solution, solution_values);
+    std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
+    fe_values.get_function_gradients(solution, solution_gradients);
+
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      double dtau = 1e-3;
+      for (unsigned int i = 0; i < dofs_per_cell; ++i)
+      {
+        for (unsigned int j = 0; j < dofs_per_cell; ++j)
+        {
+          local_matrix(i, j) += 1. / dtau * fe_values.shape_value(i, q) * fe_values.shape_value(j, q) * fe_values.JxW(q);
+          local_matrix(i, j) += fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
+        }
+        local_rhs(i) += 1. / dtau * solution_values[q] * fe_values.shape_value(i, q) * fe_values.JxW(q);
+      }
+    }
+
+    constraints.distribute_local_to_global(local_matrix,
+                                           local_rhs,
+                                           local_dof_indices,
+                                           system_matrix,
+                                           system_rhs);
+  }
+}
+
+
+
+
 template <int dim>
 void NonlinearProblem<dim>::solve_newton(double relaxation_parameter)
 {
@@ -646,30 +726,28 @@ void NonlinearProblem<dim>::output_results(unsigned int cycle)
 template <int dim>
 void NonlinearProblem<dim>::run_newton(bool first_cycle)
 {
+
+  std::cout << "  Start to set up system" << std::endl;
+  setup_system(first_cycle);
+  std::cout << "  End of set up system" << std::endl;
+
+  std::cout << "  Number of active cells: "
+            << triangulation.n_active_cells()
+            << std::endl;
+
+  std::cout << "  Number of degrees of freedom: "
+            << dof_handler.n_dofs()
+            << std::endl;
+
+  std::cout << "  Number of lagrangian points: "
+            << cache_boundary_values.size()
+            << std::endl;
+
   unsigned int newton_step = 0;
-  double res = 0;
-  bool first_step = true;
-  while ( (first_step || (res > 1e-6)) && newton_step < 500)
+  double res = 1e3;
+  while (res > 1e-6 && newton_step < 500)
   {
     std::cout << std::endl << "  Newton step " << newton_step << std::endl;
-    if (first_step)
-    {
-      std::cout << "  Start to set up system" << std::endl;
-      setup_system(first_cycle);
-      std::cout << "  End of set up system" << std::endl;
-
-      std::cout << "  Number of active cells: "
-                << triangulation.n_active_cells()
-                << std::endl;
-
-      std::cout << "  Number of degrees of freedom: "
-                << dof_handler.n_dofs()
-                << std::endl;
-
-      first_step = false;
-
-      // exit(0);
-    }
 
     std::cout << "  Start to assemble system" << std::endl;
     assemble_system_newton();
@@ -682,7 +760,6 @@ void NonlinearProblem<dim>::run_newton(bool first_cycle)
     res = compute_residual();
     std::cout << "  Residual: " << res << std::endl;
     // std::cout << "  Delta phi norm: " << newton_update.l2_norm() << std::endl;
-
     newton_step++;
 
     // output_results(newton_step);
@@ -697,33 +774,44 @@ void NonlinearProblem<dim>::run_newton(bool first_cycle)
 template <int dim>
 void NonlinearProblem<dim>::run_picard(bool first_cycle)
 {
+
+  std::cout << "  Start to set up system" << std::endl;
+  setup_system(first_cycle);
+  std::cout << "  End of set up system" << std::endl;
+
+  std::cout << "  Number of active cells: "
+            << triangulation.n_active_cells()
+            << std::endl;
+
+  std::cout << "  Number of degrees of freedom: "
+            << dof_handler.n_dofs()
+            << std::endl;
+
+  std::cout << "  Number of lagrangian points: "
+            << cache_boundary_values.size()
+            << std::endl;
+
+  // For debugging
+  // initialize_distance_field_quadratic(dof_handler, solution, Point<dim>(0.5, 0.5));
+  // unsigned int total_poisson_steps = 5;
+  // for (unsigned int poisson_step = 0; poisson_step < total_poisson_steps; poisson_step++)
+  // {
+  //   std::cout << "  Start to assemble system" << std::endl;
+  //   assemble_system_poisson();
+  //   std::cout << "  End of assemble system" << std::endl;
+
+  //   std::cout << "  Start to solve..." << std::endl;
+  //   solve_picard();
+  //   std::cout << "  End of solve" << std::endl;
+
+  //   // output_results(poisson_step + 1);
+  // }
+
   unsigned int picard_step = 0;
-  double res = 0;
-  bool first_step = true;
-  while ( (first_step || (res > 1e-3)) && picard_step < 1000)
+  double res = 1e3;
+  while (res > 1e-3 && picard_step < 1000)
   {
     std::cout << std::endl << "  Picard step " << picard_step << std::endl;
-    if (first_step)
-    {
-      std::cout << "  Start to set up system" << std::endl;
-      setup_system(first_cycle);
-      std::cout << "  End of set up system" << std::endl;
-
-      std::cout << "  Number of active cells: "
-                << triangulation.n_active_cells()
-                << std::endl;
-
-      std::cout << "  Number of degrees of freedom: "
-                << dof_handler.n_dofs()
-                << std::endl;
-
-      // For debugging
-      // initialize_distance_field_quadratic(dof_handler, solution);
-
-      first_step = false;
-    }
-
-
 
     std::cout << "  Start to assemble system" << std::endl;
     assemble_system_picard();
@@ -732,6 +820,7 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
     std::cout << "  Start to solve..." << std::endl;
     solve_picard();
     std::cout << "  End of solve" << std::endl;
+
 
     Vector<double>  delta_solution = solution;
     delta_solution.sadd(-1, old_solution);
@@ -742,6 +831,8 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
     picard_step++;
     // output_results(picard_step);
   }
+
+  time_step++;
   // exit(0);
 
 }

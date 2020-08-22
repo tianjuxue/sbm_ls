@@ -21,16 +21,18 @@ private:
 template <int dim>
 void TimeEvolution<dim>::run()
 {
-  GridGenerator::hyper_cube(triangulation, -1, 1);
+  GridGenerator::hyper_cube(triangulation, 0, 1);
   triangulation.refine_global(6);
 
-  int time_steps = 1000;
+  int total_time_steps = 1000;
+  double dt = 2*1e-3;
+  // double dt = 0.002;
 
-  NonlinearProblem<2> problem(triangulation, velocity);
+  NonlinearProblem<2> problem(triangulation, velocity, dt);
   // PoissonProblem<2> problem(triangulation, velocity);
 
 
-  for (int i = 1; i < time_steps; ++i)
+  for (int i = 1; i < total_time_steps; ++i)
   {
     problem.cycle_no = i;
     std::cout << std::endl << "  cycle: " << i << std::endl;
