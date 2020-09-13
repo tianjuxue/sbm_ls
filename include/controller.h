@@ -26,11 +26,9 @@ void TimeEvolution<dim>::run()
 
   int total_time_steps = 1000;
   double dt = 2*1e-3;
-  // double dt = 0.002;
 
   NonlinearProblem<2> problem(triangulation, velocity, dt);
   // PoissonProblem<2> problem(triangulation, velocity);
-
 
   for (int i = 1; i < total_time_steps; ++i)
   {
@@ -44,7 +42,6 @@ void TimeEvolution<dim>::run()
   }
 
 }
-
 
 
 #endif

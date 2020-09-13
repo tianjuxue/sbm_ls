@@ -74,7 +74,7 @@ NonlinearProblem<dim>::NonlinearProblem(Triangulation<dim> &triangulation_,
   time_step(0)
 {
 
-  int fe_degree = 2;
+  int fe_degree = 1;
   fe_collection.push_back(FE_Q<dim>(fe_degree));
   fe_collection.push_back(FE_Q<dim>(fe_degree));
 
@@ -166,8 +166,8 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
     old_solution.reinit(dof_handler.n_dofs());
 
     // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.5), 0.25);
-    // initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
-    initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
+    initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
+    // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
 
     old_solution = solution;
     output_results(0);
