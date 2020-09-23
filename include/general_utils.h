@@ -19,9 +19,9 @@ Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point, double ti
   vel[0] = 1.;
   vel[1] = 0.0;
 
-  // double T = 2;
-  // vel[0] = -2 * sin(M_PI * point[0]) * sin(M_PI * point[0]) * cos(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
-  // vel[1] = 2 * cos(M_PI * point[0]) * sin(M_PI * point[0]) * sin(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
+  double T = 2;
+  vel[0] = -2 * sin(M_PI * point[0]) * sin(M_PI * point[0]) * cos(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
+  vel[1] = 2 * cos(M_PI * point[0]) * sin(M_PI * point[0]) * sin(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
 
   return vel;
 }
@@ -68,6 +68,12 @@ void sbm_map(std::vector<Point<dim>> &target_points,
       delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
       target_point = target_point + relax_param * (delta1 + delta2);
 
+      // Bound the point, to change
+      target_point[0] = target_point[0] > 1 ? 0.5 : target_point[0];
+      target_point[0] = target_point[0] < 0 ? 0.5 : target_point[0];
+      target_point[1] = target_point[1] > 1 ? 0.5 : target_point[1];
+      target_point[1] = target_point[1] < 0 ? 0.5 : target_point[1];
+
       phi = VectorTools::point_value(dof_handler, solution, target_point);
       grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
       res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
@@ -77,7 +83,6 @@ void sbm_map(std::vector<Point<dim>> &target_points,
       // std::cout << "  res1 is " << abs(phi) << std::endl;
       // std::cout << "  res2 is " << cross_product_norm(grad_phi, (points[i] - target_point)) << std::endl;
       // std::cout << "  The point found: " << target_point << std::endl;
-      // std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
     }
 
     if (res > tol)
@@ -108,8 +113,8 @@ void sbm_map(std::vector<Point<dim>> &target_points,
     // std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
 
     std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-              << " phi value "  << VectorTools::point_value(dof_handler, solution, target_point)
-              << " mapped points " << target_point << std::endl;
+              << "  phi value "  << VectorTools::point_value(dof_handler, solution, target_point)
+              << "  mapped points " << target_point << std::endl;
 
   }
 
@@ -148,7 +153,7 @@ void lagrangian_shift(AdvectionVelocity<dim> &velocity,
 {
   for (int i = 0; i < length; ++i)
   {
-    boundary_values[i] = 0;
+    boundary_values[i] = 1;
     Tensor<1, dim> shift = velocity.get_velocity(target_points[i], time) * dt;
     target_points[i] += shift;
     distance_vectors[i] += shift;
@@ -311,5 +316,51 @@ void initialize_distance_field_quadratic(hp::DoFHandler<dim> &dof_handler, Vecto
   }
 }
 
+
+template <int dim>
+void reinitialize_distance_field(hp::DoFHandler<dim> &dof_handler,
+                                 Vector<double> &old_solution,
+                                 Vector<double> &solution)
+{
+  unsigned int length = dof_handler.n_dofs();
+  std::vector<Point<dim>> support_points(length);
+  set_support_points(dof_handler, support_points);
+
+  for (unsigned int i = 0; i < length; i++)
+  {
+    if (old_solution(i) > 0.01)
+    {
+      unsigned int unit = 1;
+      std::vector<Point<dim>> target_points(unit);
+      std::vector<Tensor<1, dim> > normal_vectors(unit);
+      std::vector<Tensor<1, dim> > distance_vectors(unit);
+      std::vector<Point<dim>> points;
+      points.push_back(support_points[i]);
+
+      sbm_map(target_points, normal_vectors, distance_vectors, points, unit, dof_handler, old_solution);
+      solution(i) = normal_vectors[0] * distance_vectors[0];
+    }
+  }
+}
+
+
+template <int dim>
+void reinitialize_distance_field_poisson(hp::DoFHandler<dim> &dof_handler,
+    Vector<double> &old_solution,
+    Vector<double> &solution)
+{
+  unsigned int length = dof_handler.n_dofs();
+  std::vector<Point<dim>> support_points(length);
+  set_support_points(dof_handler, support_points);
+
+  for (unsigned int i = 0; i < length; i++)
+  {
+    if (old_solution(i) < 0.1)
+    {
+      solution(i) = old_solution(i);
+    }
+  }
+
+}
 
 #endif
