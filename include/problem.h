@@ -614,8 +614,6 @@ template <int dim>
 void NonlinearProblem<dim>::assemble_system_poisson()
 {
 
-  double alpha_small = 1e-1;
-
   system_matrix = 0;
   system_rhs    = 0;
 
@@ -667,10 +665,10 @@ void NonlinearProblem<dim>::assemble_system_poisson()
       {
         for (unsigned int j = 0; j < dofs_per_cell; ++j)
         {
-          local_matrix(i, j) += alpha_small * alpha_small * fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
-          local_matrix(i, j) += fe_values.shape_value(i, q) * fe_values.shape_value(j, q) * fe_values.JxW(q);
+          local_matrix(i, j) += fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
+          // local_matrix(i, j) += fe_values.shape_value(i, q) * fe_values.shape_value(j, q) * fe_values.JxW(q);
         }
-        // local_rhs(i) += 10.*fe_values.shape_value(i, q) * fe_values.JxW(q);
+        local_rhs(i) += fe_values.shape_value(i, q) * fe_values.JxW(q);
       }
     }
 
@@ -694,7 +692,7 @@ void NonlinearProblem<dim>::assemble_system_poisson()
               //                       * fe_values_face.shape_value(i, q) *
               //                       fe_values_face.JxW(q);
             }
-            double neumann_boundary_value = alpha_small * alpha_small * 0;
+            double neumann_boundary_value = 0;
             local_rhs(i) += neumann_boundary_value * fe_values_face.shape_value(i, q) *
                             fe_values_face.JxW(q);
           }
@@ -897,7 +895,7 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
 
   time_step++;
 
-  reinitialize_distance_field(dof_handler, old_solution, solution);
+  // reinitialize_distance_field(dof_handler, old_solution, solution);
   // output_results(1);
   // exit(0);
 

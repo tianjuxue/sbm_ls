@@ -153,7 +153,7 @@ void lagrangian_shift(AdvectionVelocity<dim> &velocity,
 {
   for (int i = 0; i < length; ++i)
   {
-    boundary_values[i] = 1;
+    boundary_values[i] = 0;
     Tensor<1, dim> shift = velocity.get_velocity(target_points[i], time) * dt;
     target_points[i] += shift;
     distance_vectors[i] += shift;
