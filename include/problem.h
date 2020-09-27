@@ -166,8 +166,8 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
     old_solution.reinit(dof_handler.n_dofs());
 
     // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.5), 0.25);
-    initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
-    // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
+    // initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
+    initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
 
     old_solution = solution;
     output_results(0);
@@ -567,7 +567,7 @@ void NonlinearProblem<dim>::assemble_system_picard()
           }
         }
       }
-      else if (cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1)
+      else if ((cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1))
       {
         fe_values_face_hp.reinit(cell, face_no);
         const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
@@ -853,19 +853,18 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
             << std::endl;
 
 
+  // // For debugging
+  // std::cout << "  Start to assemble system" << std::endl;
+  // assemble_system_poisson();
+  // std::cout << "  End of assemble system" << std::endl;
 
-  // For debugging
-  std::cout << "  Start to assemble system" << std::endl;
-  assemble_system_poisson();
-  std::cout << "  End of assemble system" << std::endl;
+  // std::cout << "  Start to solve..." << std::endl;
+  // solve_picard();
+  // std::cout << "  End of solve" << std::endl;
 
-  std::cout << "  Start to solve..." << std::endl;
-  solve_picard();
-  std::cout << "  End of solve" << std::endl;
-
-  // reinitialize_distance_field_poisson(dof_handler, old_solution, solution);
-  output_results(1);
-  exit(0);
+  // // reinitialize_distance_field_poisson(dof_handler, old_solution, solution);
+  // output_results(1);
+  // exit(0);
 
 
   unsigned int picard_step = 0;

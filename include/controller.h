@@ -25,8 +25,11 @@ void TimeEvolution<dim>::run()
   triangulation.refine_global(6);
 
   int total_time_steps = 1000;
-  // double dt = 10*1e-3;
-  double dt = 2*1e-3;
+  // vortex
+  double dt = 10*1e-3;
+
+  // moving square
+  // double dt = 2*1e-3;
 
   NonlinearProblem<2> problem(triangulation, velocity, dt);
   // PoissonProblem<2> problem(triangulation, velocity);
