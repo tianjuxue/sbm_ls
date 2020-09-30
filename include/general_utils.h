@@ -16,8 +16,8 @@ template <int dim>
 Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point, double time)
 {
   Tensor<1, dim> vel;
-  // vel[0] = 1.;
-  vel[0] = 0;  
+  vel[0] = 1.;
+  // vel[0] = 0.;
   vel[1] = 0;
 
   // double T = 2;

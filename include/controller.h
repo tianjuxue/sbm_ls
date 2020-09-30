@@ -7,6 +7,20 @@
 using namespace dealii;
 
 
+void test_speed()
+{
+  std::vector<double> v(100000, 0);
+  std::cout << "v has size " << v.size() << std::endl;
+  for (int j = 0; j < 10000; ++j)
+  {
+    std::cout << "j = " << j << std::endl;
+    for (int i = 0; i < v.size(); ++i)
+    {
+      v[i]++;
+    }
+  }
+}
+
 template <int dim>
 class TimeEvolution
 {
@@ -21,15 +35,20 @@ private:
 template <int dim>
 void TimeEvolution<dim>::run()
 {
+
+  // test_speed();
+  // exit(0);
+
+
   GridGenerator::hyper_cube(triangulation, 0, 1);
-  triangulation.refine_global(6);
+  triangulation.refine_global(7);
 
   int total_time_steps = 1000;
   // vortex
   // double dt = 10*1e-3;
 
   // moving square
-  double dt = 2*1e-3;
+  double dt = 2 * 1e-3;
 
   NonlinearProblem<2> problem(triangulation, velocity, dt);
   // PoissonProblem<2> problem(triangulation, velocity);
