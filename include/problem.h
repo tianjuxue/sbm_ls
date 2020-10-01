@@ -65,7 +65,7 @@ NonlinearProblem<dim>::NonlinearProblem(Triangulation<dim> &triangulation_,
   h(GridTools::minimal_cell_diameter(triangulation_)),
   // alpha(1e2), // Magic number, may affect numerical instability
   // artificial_viscosity(1e-3)
-  alpha(1e1), // Magic number, may affect numerical instability
+  alpha(1e3), // Magic number, may affect numerical instability
   artificial_viscosity(0),
   dt(dt_),
   time_step(0)
@@ -163,8 +163,8 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
     old_solution.reinit(dof_handler.n_dofs());
 
     // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.5), 0.25);
-    initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
-    // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
+    // initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
+    initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
     center_point[0] = 0.5;
     center_point[1] = 0.5;
 
@@ -581,7 +581,7 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
 
   time_step++;
 
-  // reinitialize_distance_field(dof_handler, old_solution, solution);
+  reinitialize_distance_field(dof_handler, old_solution, solution);
   // output_results(1);
   // exit(0);
 
