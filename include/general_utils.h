@@ -16,13 +16,13 @@ template <int dim>
 Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point, double time)
 {
   Tensor<1, dim> vel;
-  vel[0] = 1.;
-  // vel[0] = 0.;
+  // vel[0] = 1.;
+  vel[0] = 0.;
   vel[1] = 0;
 
-  double T = 2;
-  vel[0] = -2 * sin(M_PI * point[0]) * sin(M_PI * point[0]) * cos(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
-  vel[1] = 2 * cos(M_PI * point[0]) * sin(M_PI * point[0]) * sin(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
+  // double T = 2;
+  // vel[0] = -2 * sin(M_PI * point[0]) * sin(M_PI * point[0]) * cos(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
+  // vel[1] = 2 * cos(M_PI * point[0]) * sin(M_PI * point[0]) * sin(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
 
   return vel;
 }
@@ -48,6 +48,11 @@ void sbm_map(std::vector<Point<dim>> &target_points,
 {
   for (int i = 0; i < length; ++i)
   {
+
+
+    hp::MappingCollection<dim> mapping_collection;
+    mapping_collection.push_back(MappingQ1<dim>());
+
     // std::cout << std::endl << "  Point is " << points[i] << std::endl;
     Point<dim> target_point;
     target_point = points[i];
@@ -60,8 +65,13 @@ void sbm_map(std::vector<Point<dim>> &target_points,
     int step = 0;
     int max_step = 100;
 
-    phi = VectorTools::point_value(dof_handler, solution, target_point);
-    grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+    Vector<double> phi_p;
+    phi_p.reinit(2);
+    std::vector<Tensor<1, dim>> grad_phi_p(2);
+    VectorTools::point_value(mapping_collection, dof_handler, solution, target_point, phi_p);
+    VectorTools::point_gradient(mapping_collection, dof_handler, solution, target_point, grad_phi_p);
+    phi = phi_p(0);
+    grad_phi = grad_phi_p[0];
 
     while (res > tol && step < max_step)
     {
@@ -75,8 +85,13 @@ void sbm_map(std::vector<Point<dim>> &target_points,
       target_point[1] = target_point[1] > 1 ? 0.5 : target_point[1];
       target_point[1] = target_point[1] < 0 ? 0.5 : target_point[1];
 
-      phi = VectorTools::point_value(dof_handler, solution, target_point);
-      grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+      // phi = VectorTools::point_value(dof_handler, solution, target_point);
+      // grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+      VectorTools::point_value(mapping_collection, dof_handler, solution, target_point, phi_p);
+      VectorTools::point_gradient(mapping_collection, dof_handler, solution, target_point, grad_phi_p);
+      phi = phi_p(0);
+      grad_phi = grad_phi_p[0];
+
       res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
       step++;
 
@@ -97,8 +112,11 @@ void sbm_map(std::vector<Point<dim>> &target_points,
         // target_point = target_point + relax_param * (delta1 + delta2);
         target_point = target_point + relax_param * (delta1);
 
-        phi = VectorTools::point_value(dof_handler, solution, target_point);
-        grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+        VectorTools::point_value(mapping_collection, dof_handler, solution, target_point, phi_p);
+        VectorTools::point_gradient(mapping_collection, dof_handler, solution, target_point, grad_phi_p);
+        phi = phi_p(0);
+        grad_phi = grad_phi_p[0];
+
         res = abs(phi);
         step++;
       }
@@ -113,8 +131,10 @@ void sbm_map(std::vector<Point<dim>> &target_points,
     // std::cout << "  The target point found: " << target_point << std::endl;
     // std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
 
+    VectorTools::point_value(mapping_collection, dof_handler, solution, target_point, phi_p);
+    phi = phi_p(0);
     std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-              << "  phi value "  << VectorTools::point_value(dof_handler, solution, target_point)
+              << "  phi value "  << phi
               << "  mapped points " << target_point << std::endl;
 
   }
