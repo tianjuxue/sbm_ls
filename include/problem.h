@@ -19,8 +19,8 @@ public:
   int cycle_no;
 
 private:
-  void cache_interface();
   void setup_system(bool first_cycle);
+  void cache_interface();
   void assemble_system_picard();
   void assemble_system_poisson();
   void solve_picard();
@@ -71,9 +71,9 @@ NonlinearProblem<dim>::NonlinearProblem(Triangulation<dim> &triangulation_,
   time_step(0)
 {
 
-  int fe_degree = 1;
-  fe_collection.push_back(FESystem<dim> (FE_Q<dim>(fe_degree), 1, FE_Q<dim>(fe_degree), 1));
-  fe_collection.push_back(FESystem<dim> (FE_Q<dim>(fe_degree), 1, FE_Q<dim>(fe_degree), 1));
+  int fe_degree = 2;
+  fe_collection.push_back(FESystem<dim> (FE_Q<dim>(fe_degree), 1, FE_Q<dim>(fe_degree - 1), 1));
+  fe_collection.push_back(FESystem<dim> (FE_Q<dim>(fe_degree), 1, FE_Q<dim>(fe_degree - 1), 1));
 
   q_collection.push_back(QGauss<dim>(fe_degree + 1));
   q_collection.push_back(QGauss<dim>(fe_degree + 1));
@@ -88,66 +88,6 @@ template <int dim>
 NonlinearProblem<dim>::~NonlinearProblem()
 {
   dof_handler.clear();
-}
-
-
-template <int dim>
-void NonlinearProblem<dim>::cache_interface()
-{
-  cache_distance_vectors.clear();
-  cache_boundary_values.clear();
-
-  std::ofstream raw_file("../data/raw_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
-  std::ofstream map_file("../data/map_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
-  std::ofstream bv_file("../data/bv" + Utilities::int_to_string(cycle_no, 3) + ".txt");
-
-  hp::FEFaceValues<dim> fe_values_face_hp (fe_collection, q_collection_face,
-      update_values    |  update_gradients |
-      update_quadrature_points  |  update_JxW_values |
-      update_normal_vectors);
-
-  typename hp::DoFHandler<dim>::active_cell_iterator
-  cell = dof_handler.begin_active(),
-  endc = dof_handler.end();
-
-  for (; cell != endc; ++cell)
-  {
-    for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
-    {
-      if (!cell->face(face_no)->at_boundary())
-      {
-        if (cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1)
-        {
-          fe_values_face_hp.reinit(cell, face_no);
-          const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
-          unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
-
-          std::vector<Point<dim>> target_points(n_face_q_points);
-          std::vector<Tensor<1, dim> > normal_vectors(n_face_q_points);
-          std::vector<Tensor<1, dim> > distance_vectors(n_face_q_points);
-          std::vector<double> boundary_values(n_face_q_points);
-          std::vector<Point<dim>> quadrature_points = fe_values_face.get_quadrature_points();
-          sbm_map(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution);
-          // compute_boundary_values(velocity, target_points, normal_vectors, boundary_values, n_face_q_points);
-
-          for (unsigned int q = 0; q < n_face_q_points; ++q)
-          {
-            raw_file << std::fixed << std::setprecision(8) << quadrature_points[q][0] << " " << quadrature_points[q][1] << std::endl;
-            map_file << std::fixed << std::setprecision(8) << target_points[q][0] << " " << target_points[q][1] << std::endl;
-            bv_file << std::fixed << std::setprecision(8) << boundary_values[q] << std::endl;
-          }
-
-          lagrangian_shift(velocity, target_points, distance_vectors, boundary_values, dt, dt * time_step, n_face_q_points);
-          cache_distance_vectors.push_back(distance_vectors);
-          cache_boundary_values.push_back(boundary_values);
-
-        }
-      }
-    }
-  }
-  map_file.close();
-  raw_file.close();
-  bv_file.close();
 }
 
 
@@ -219,7 +159,7 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
 
   std::vector<bool> bool_component_mask(2);
   bool_component_mask[0] = true;
-  bool_component_mask[1] = true;
+  bool_component_mask[1] = false;
   ComponentMask component_mask(bool_component_mask);
 
   DoFTools::make_zero_boundary_constraints(dof_handler, constraints, component_mask);
@@ -231,6 +171,66 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
   // initialize_distance_field_circle(dof_handler, solution, center_point, 0.2);
   // center_point += velocity.get_velocity(center_point, dt * time_step) * dt;
 
+}
+
+
+template <int dim>
+void NonlinearProblem<dim>::cache_interface()
+{
+  cache_distance_vectors.clear();
+  cache_boundary_values.clear();
+
+  std::ofstream raw_file("../data/raw_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
+  std::ofstream map_file("../data/map_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
+  std::ofstream bv_file("../data/bv" + Utilities::int_to_string(cycle_no, 3) + ".txt");
+
+  hp::FEFaceValues<dim> fe_values_face_hp (fe_collection, q_collection_face,
+      update_values    |  update_gradients |
+      update_quadrature_points  |  update_JxW_values |
+      update_normal_vectors);
+
+  typename hp::DoFHandler<dim>::active_cell_iterator
+  cell = dof_handler.begin_active(),
+  endc = dof_handler.end();
+
+  for (; cell != endc; ++cell)
+  {
+    for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
+    {
+      if (!cell->face(face_no)->at_boundary())
+      {
+        if (cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1)
+        {
+          fe_values_face_hp.reinit(cell, face_no);
+          const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
+          unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
+
+          std::vector<Point<dim>> target_points(n_face_q_points);
+          std::vector<Tensor<1, dim> > normal_vectors(n_face_q_points);
+          std::vector<Tensor<1, dim> > distance_vectors(n_face_q_points);
+          std::vector<double> boundary_values(n_face_q_points);
+          std::vector<Point<dim>> quadrature_points = fe_values_face.get_quadrature_points();
+          sbm_map(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution);
+          // compute_boundary_values(velocity, target_points, normal_vectors, boundary_values, n_face_q_points);
+
+          for (unsigned int q = 0; q < n_face_q_points; ++q)
+          {
+            raw_file << std::fixed << std::setprecision(8) << quadrature_points[q][0] << " " << quadrature_points[q][1] << std::endl;
+            map_file << std::fixed << std::setprecision(8) << target_points[q][0] << " " << target_points[q][1] << std::endl;
+            bv_file << std::fixed << std::setprecision(8) << boundary_values[q] << std::endl;
+          }
+
+          lagrangian_shift(velocity, target_points, distance_vectors, boundary_values, dt, dt * time_step, n_face_q_points);
+          cache_distance_vectors.push_back(distance_vectors);
+          cache_boundary_values.push_back(boundary_values);
+
+        }
+      }
+    }
+  }
+  map_file.close();
+  raw_file.close();
+  bv_file.close();
 }
 
 
@@ -292,17 +292,38 @@ void NonlinearProblem<dim>::assemble_system_picard()
       double grad_norm = solution_gradients[q][0].norm();
       Tensor<1, dim> part_d = solution_gradients[q][0] / grad_norm;
 
+
+      // for (unsigned int i = 0; i < dofs_per_cell; ++i)
+      // {
+      //   for (unsigned int j = 0; j < dofs_per_cell; ++j)
+      //   {
+      //     // local_matrix(i, j) += fe_values[distance_function].value(i, q) * fe_values[distance_function].value(j, q) * fe_values.JxW(q);
+      //     local_matrix(i, j) += fe_values[distance_function].gradient(i, q) * fe_values[distance_function].gradient(j, q) * fe_values.JxW(q);
+
+      //     local_matrix(i, j) += fe_values[distance_function].gradient(i, q) * fe_values[lagrangian_multipler].gradient(j, q) * fe_values.JxW(q);
+      //     local_matrix(i, j) += fe_values[distance_function].gradient(j, q) * fe_values[lagrangian_multipler].gradient(i, q) * fe_values.JxW(q);
+      //   }
+      //   local_rhs(i) += part_d * fe_values[lagrangian_multipler].gradient(i, q) * fe_values.JxW(q);
+      //   local_rhs(i) += fe_values[distance_function].value(i, q) * fe_values.JxW(q);
+      // }
+
+      double relaxation_step = 1.;
+      part_d = part_d / relaxation_step;
+
       for (unsigned int i = 0; i < dofs_per_cell; ++i)
       {
         for (unsigned int j = 0; j < dofs_per_cell; ++j)
         {
-          local_matrix(i, j) += fe_values[distance_function].value(i, q) * fe_values[distance_function].value(j, q) * fe_values.JxW(q);
-          // local_matrix(i, j) += fe_values[distance_function].gradient(i, q) * fe_values[distance_function].gradient(j, q) * fe_values.JxW(q);
-          local_matrix(i, j) += fe_values[distance_function].gradient(i, q) * fe_values[lagrangian_multipler].gradient(j, q) * fe_values.JxW(q);
-          local_matrix(i, j) += fe_values[distance_function].gradient(j, q) * fe_values[lagrangian_multipler].gradient(i, q) * fe_values.JxW(q);
+          // local_matrix(i, j) += fe_values[distance_function].value(i, q) * fe_values[distance_function].value(j, q) * fe_values.JxW(q);
+          local_matrix(i, j) += fe_values[distance_function].gradient(i, q) * fe_values[distance_function].gradient(j, q) * fe_values.JxW(q);
+
+          local_matrix(i, j) += part_d * fe_values[distance_function].gradient(i, q) * fe_values[lagrangian_multipler].value(j, q) * fe_values.JxW(q);
+          local_matrix(i, j) += part_d * fe_values[distance_function].gradient(j, q) * fe_values[lagrangian_multipler].value(i, q) * fe_values.JxW(q);
         }
-        local_rhs(i) += part_d * fe_values[lagrangian_multipler].gradient(i, q) * fe_values.JxW(q);
+        local_rhs(i) += (part_d * solution_gradients[q][0] - (grad_norm - 1)) * fe_values[lagrangian_multipler].value(i, q) * fe_values.JxW(q);
+        local_rhs(i) += fe_values[distance_function].value(i, q) * fe_values.JxW(q);
       }
+
     }
 
     // for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
@@ -571,7 +592,7 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
 
   unsigned int picard_step = 0;
   double res = 1e3;
-  while (res > 1e-3 && picard_step < 1000)
+  while (res > 1e-8 && picard_step < 100000)
   {
     std::cout << std::endl << "  Picard step " << picard_step << std::endl;
 

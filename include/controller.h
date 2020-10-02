@@ -41,7 +41,7 @@ void TimeEvolution<dim>::run()
   // Test Mixed
 
   GridGenerator::hyper_cube(triangulation, 0, 1);
-  triangulation.refine_global(6);
+  triangulation.refine_global(5);
 
   int total_time_steps = 1000;
   // vortex
