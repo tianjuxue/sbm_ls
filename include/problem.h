@@ -20,7 +20,9 @@ public:
 
 private:
   void cache_interface();
+  void make_constraints();
   void setup_system(bool first_cycle);
+  double compute_residual();
   void assemble_system_picard();
   void assemble_system_poisson();
   void solve_picard();
@@ -42,6 +44,7 @@ private:
 
   std::vector<std::vector<Tensor<1, dim>>> cache_distance_vectors;
   std::vector<std::vector<double>> cache_boundary_values;
+  std::vector<int> dof_flags;
 
   double h;
   double alpha;
@@ -49,7 +52,10 @@ private:
 
   double dt;
   int time_step;
-  Point<dim> center_point;
+  int FLAG_IN;
+  int FLAG_OUT;
+  int FLAG_TR; /* transition */
+  int current_domain;
 };
 
 
@@ -65,10 +71,14 @@ NonlinearProblem<dim>::NonlinearProblem(Triangulation<dim> &triangulation_,
   h(GridTools::minimal_cell_diameter(triangulation_)),
   // alpha(1e2), // Magic number, may affect numerical instability
   // artificial_viscosity(1e-3)
-  alpha(1e3), // Magic number, may affect numerical instability
+  alpha(1e2), // Magic number, may affect numerical instability
   artificial_viscosity(0),
   dt(dt_),
-  time_step(0)
+  time_step(0),
+  FLAG_IN(0),
+  FLAG_OUT(1),
+  FLAG_TR(2),
+  current_domain(-1)
 {
 
   int fe_degree = 1;
@@ -116,7 +126,7 @@ void NonlinearProblem<dim>::cache_interface()
     {
       if (!cell->face(face_no)->at_boundary())
       {
-        if (cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1)
+        if (cell->material_id() != FLAG_TR && cell->material_id() == current_domain && cell->neighbor(face_no)->material_id() == FLAG_TR)
         {
           fe_values_face_hp.reinit(cell, face_no);
           const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
@@ -151,6 +161,53 @@ void NonlinearProblem<dim>::cache_interface()
 }
 
 
+
+template <int dim>
+void NonlinearProblem<dim>::make_constraints()
+{
+
+  dof_flags.clear();
+  dof_flags.insert(dof_flags.end(), dof_handler.n_dofs(), FLAG_TR);
+
+  std::vector<types::global_dof_index> local_dof_indices;
+  typename hp::DoFHandler<dim>::active_cell_iterator
+  cell = dof_handler.begin_active(),
+  endc = dof_handler.end();
+  for (; cell != endc; ++cell)
+  {
+    if (cell->material_id() == FLAG_IN || cell->material_id() == FLAG_OUT)
+    {
+      unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
+      local_dof_indices.resize(dofs_per_cell);
+      cell->get_dof_indices(local_dof_indices);
+      for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
+      {
+        dof_flags[local_dof_indices[i]] = cell->material_id();
+      }
+    }
+  }
+
+  constraints.clear();
+  for (unsigned int i = 0; i < dof_flags.size(); ++i)
+  {
+    if (dof_flags[i] != current_domain)
+    {
+      constraints.add_line(i);
+      constraints.set_inhomogeneity(i, solution[i]);
+    }
+
+  }
+
+  if (current_domain == FLAG_OUT)
+  {
+     DoFTools::make_zero_boundary_constraints(dof_handler, constraints);
+  }
+
+  DoFTools::make_hanging_node_constraints(dof_handler, constraints);
+  constraints.close();
+}
+
+
 template <int dim>
 void NonlinearProblem<dim>::setup_system(bool first_cycle)
 {
@@ -163,41 +220,16 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
     old_solution.reinit(dof_handler.n_dofs());
 
     // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.5), 0.25);
-    // initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
-    initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
-    center_point[0] = 0.5;
-    center_point[1] = 0.5;
+    initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
+    // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
 
     old_solution = solution;
-
     output_results(0);
-
   }
 
   newton_update.reinit(dof_handler.n_dofs());
   system_rhs.reinit(dof_handler.n_dofs());
 
-  int counter = 0;
-  for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
-       cell != dof_handler.end(); ++cell)
-  {
-    // if (old_solution(cell->vertex_dof_index(0, 0, 0)) +
-    //     old_solution(cell->vertex_dof_index(1, 0, 0)) +
-    //     old_solution(cell->vertex_dof_index(2, 0, 0)) +
-    //     old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
-    if (old_solution(cell->vertex_dof_index(0, 0, 0)) > 0 &&
-        old_solution(cell->vertex_dof_index(1, 0, 0)) > 0 &&
-        old_solution(cell->vertex_dof_index(2, 0, 0)) > 0 &&
-        old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
-    {
-      cell->set_material_id(0);
-      counter++;
-    }
-    else
-      cell->set_material_id(1);
-  }
-
-  std::cout << "  Number of surrogate cells " << counter << std::endl;
 
   DynamicSparsityPattern dsp(dof_handler.n_dofs());
   DoFTools::make_sparsity_pattern(dof_handler,
@@ -207,20 +239,41 @@ void NonlinearProblem<dim>::setup_system(bool first_cycle)
   sparsity_pattern.copy_from(dsp);
   system_matrix.reinit(sparsity_pattern);
 
-  constraints.clear();
-  DoFTools::make_hanging_node_constraints(dof_handler,
-                                          constraints);
-  constraints.close();
 
-  cache_interface();
+  int counter_0 = 0;
+  int counter_1 = 0;
+  int counter_2 = 0;
+  for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
+       cell != dof_handler.end(); ++cell)
+  {
+    if (old_solution(cell->vertex_dof_index(0, 0, 0)) > 0 &&
+        old_solution(cell->vertex_dof_index(1, 0, 0)) > 0 &&
+        old_solution(cell->vertex_dof_index(2, 0, 0)) > 0 &&
+        old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
+    {
+      cell->set_material_id(FLAG_IN);
+      counter_0++;
+    }
+    else if (old_solution(cell->vertex_dof_index(0, 0, 0)) < 0 &&
+             old_solution(cell->vertex_dof_index(1, 0, 0)) < 0 &&
+             old_solution(cell->vertex_dof_index(2, 0, 0)) < 0 &&
+             old_solution(cell->vertex_dof_index(3, 0, 0)) < 0)
+    {
+      cell->set_material_id(FLAG_OUT);
+      counter_1++;
+    }
+    else
+    {
+      cell->set_material_id(FLAG_TR);
+      counter_2++;
+    }
+  }
 
-  // initialize_distance_field_circle(dof_handler, solution, center_point, 0.2);
-  // center_point += velocity.get_velocity(center_point, dt * time_step) * dt;
-
-
+  std::cout << "  Number of inner surrogate cells " << counter_0 << std::endl;
+  std::cout << "  Number of outer surrogate cells " << counter_1 << std::endl;
+  std::cout << "  Number of transition surrogate cells " << counter_2 << std::endl;
 
 }
-
 
 
 template <int dim>
@@ -249,9 +302,6 @@ void NonlinearProblem<dim>::assemble_system_picard()
 
   SymmetricTensor<2, dim> unit_tensor = unit_symmetric_tensor<dim>();
   unsigned int cache_index = 0;
-
-  double dtau = 1e-3;
-  double beta = 1;
 
   for (; cell != endc; ++cell)
   {
@@ -283,11 +333,9 @@ void NonlinearProblem<dim>::assemble_system_picard()
       {
         for (unsigned int j = 0; j < dofs_per_cell; ++j)
         {
-          // local_matrix(i, j) += 1. / dtau * fe_values.shape_value(i, q) * fe_values.shape_value(i, q) * fe_values.JxW(q);
-          local_matrix(i, j) += beta * fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
+          local_matrix(i, j) += fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
         }
-        // local_rhs(i) += 1. / dtau * fe_values.shape_value(i, q) * solution_values[q] * fe_values.JxW(q);
-        local_rhs(i) += beta * part_d * fe_values.shape_grad(i, q) * fe_values.JxW(q);
+        local_rhs(i) += part_d * fe_values.shape_grad(i, q) * fe_values.JxW(q);
       }
 
     }
@@ -310,7 +358,7 @@ void NonlinearProblem<dim>::assemble_system_picard()
           }
         }
       }
-      else if (cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1)
+      else if (cell->material_id() != FLAG_TR && cell->material_id() == current_domain && cell->neighbor(face_no)->material_id() == FLAG_TR)
       {
         fe_values_face_hp.reinit(cell, face_no);
         const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
@@ -352,11 +400,10 @@ void NonlinearProblem<dim>::assemble_system_picard()
 
 
 
+
 template <int dim>
 void NonlinearProblem<dim>::assemble_system_poisson()
 {
-
-  double alpha_small = 1e-1;
 
   system_matrix = 0;
   system_rhs    = 0;
@@ -398,92 +445,100 @@ void NonlinearProblem<dim>::assemble_system_poisson()
     local_rhs = 0;
     cell->get_dof_indices(local_dof_indices);
 
-    std::vector<double> solution_values(n_q_points);
-    fe_values.get_function_values(solution, solution_values);
-    std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
-    fe_values.get_function_gradients(solution, solution_gradients);
-
-    for (unsigned int q = 0; q < n_q_points; ++q)
+    if (cell->material_id() == current_domain)
     {
-      for (unsigned int i = 0; i < dofs_per_cell; ++i)
-      {
-        for (unsigned int j = 0; j < dofs_per_cell; ++j)
-        {
-          local_matrix(i, j) += alpha_small * alpha_small * fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
-          local_matrix(i, j) += fe_values.shape_value(i, q) * fe_values.shape_value(j, q) * fe_values.JxW(q);
-        }
-        // local_rhs(i) += 10.*fe_values.shape_value(i, q) * fe_values.JxW(q);
-      }
-    }
+      double source;
+      if (current_domain == FLAG_IN)
+        source = 1;
+      else if (current_domain == FLAG_OUT)
+        source = -1;
+      else
+        source = 0;
 
-    for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
-    {
-      if (cell->face(face_no)->at_boundary()) /* Exterior boundary */
-      {
-        fe_values_face_hp.reinit(cell, face_no);
-        const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
-        unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
+      std::vector<double> solution_values(n_q_points);
+      fe_values.get_function_values(solution, solution_values);
+      std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
+      fe_values.get_function_gradients(solution, solution_gradients);
 
-        for (unsigned int q = 0; q < n_face_q_points; ++q)
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        for (unsigned int i = 0; i < dofs_per_cell; ++i)
         {
-          for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          for (unsigned int j = 0; j < dofs_per_cell; ++j)
           {
-            for (unsigned int j = 0; j < dofs_per_cell; ++j)
+            local_matrix(i, j) += fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
+          }
+          local_rhs(i) += source * fe_values.shape_value(i, q) * fe_values.JxW(q);
+        }
+      }
+
+      for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
+      {
+        if (cell->face(face_no)->at_boundary()) /* Exterior boundary */
+        {
+          fe_values_face_hp.reinit(cell, face_no);
+          const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
+          unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
+
+          for (unsigned int q = 0; q < n_face_q_points; ++q)
+          {
+            for (unsigned int i = 0; i < dofs_per_cell; ++i)
             {
-              // local_matrix(i, j) -= alpha_small * alpha_small * fe_values_face.shape_grad(j, q) * fe_values_face.normal_vector(q) * fe_values_face.shape_value(i, q) *
-              //                       fe_values_face.JxW(q);
-              // local_matrix(i, j) += (alpha_small * fe_values_face.shape_grad(j, q) * fe_values_face.normal_vector(q) + fe_values_face.shape_value(j, q))
-              //                       * fe_values_face.shape_value(i, q) *
-              //                       fe_values_face.JxW(q);
+              for (unsigned int j = 0; j < dofs_per_cell; ++j)
+              {
+                // local_matrix(i, j) -= alpha_small * alpha_small * fe_values_face.shape_grad(j, q) * fe_values_face.normal_vector(q) * fe_values_face.shape_value(i, q) *
+                //                       fe_values_face.JxW(q);
+                // local_matrix(i, j) += (alpha_small * fe_values_face.shape_grad(j, q) * fe_values_face.normal_vector(q) + fe_values_face.shape_value(j, q))
+                //                       * fe_values_face.shape_value(i, q) *
+                //                       fe_values_face.JxW(q);
+              }
+              double neumann_boundary_value = 0;
+              local_rhs(i) += neumann_boundary_value * fe_values_face.shape_value(i, q) *
+                              fe_values_face.JxW(q);
             }
-            double neumann_boundary_value = alpha_small * alpha_small * 0;
-            local_rhs(i) += neumann_boundary_value * fe_values_face.shape_value(i, q) *
-                            fe_values_face.JxW(q);
+          }
+        }
+        else if (cell->material_id() != FLAG_TR && cell->material_id() == current_domain && cell->neighbor(face_no)->material_id() == FLAG_TR)
+        {
+
+          fe_values_face_hp.reinit(cell, face_no);
+          const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
+          unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
+
+          std::vector<Tensor<1, dim> > distance_vectors = cache_distance_vectors[cache_index];
+          std::vector<double> boundary_values = cache_boundary_values[cache_index];
+          cache_index++;
+
+          // std::vector<double> solution_values_face(n_face_q_points);
+          // fe_values_face.get_function_values(solution, solution_values_face);
+          // std::vector<Tensor<1, dim>> solution_gradients_face(n_face_q_points);
+          // fe_values_face.get_function_gradients(solution, solution_gradients_face);
+
+          for (unsigned int q = 0; q < n_face_q_points; ++q)
+          {
+            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            {
+              for (unsigned int j = 0; j < dofs_per_cell; ++j)
+              {
+                local_matrix(i, j) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+                                      (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
+                                      fe_values_face.JxW(q);
+              }
+              local_rhs(i) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+                              boundary_values[q] * fe_values_face.JxW(q);
+            }
           }
         }
       }
-      else if (cell->material_id() == 0 && cell->neighbor(face_no)->material_id() == 1)
-      {
-        fe_values_face_hp.reinit(cell, face_no);
-        const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
-        unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
-
-        std::vector<Tensor<1, dim> > distance_vectors = cache_distance_vectors[cache_index];
-        std::vector<double> boundary_values = cache_boundary_values[cache_index];
-        cache_index++;
-
-        // std::vector<double> solution_values_face(n_face_q_points);
-        // fe_values_face.get_function_values(solution, solution_values_face);
-        // std::vector<Tensor<1, dim>> solution_gradients_face(n_face_q_points);
-        // fe_values_face.get_function_gradients(solution, solution_gradients_face);
-
-        for (unsigned int q = 0; q < n_face_q_points; ++q)
-        {
-          for (unsigned int i = 0; i < dofs_per_cell; ++i)
-          {
-            for (unsigned int j = 0; j < dofs_per_cell; ++j)
-            {
-              local_matrix(i, j) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-                                    (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
-                                    fe_values_face.JxW(q);
-            }
-            local_rhs(i) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-                            boundary_values[q] * fe_values_face.JxW(q);
-          }
-        }
-      }
     }
-
     constraints.distribute_local_to_global(local_matrix,
                                            local_rhs,
                                            local_dof_indices,
                                            system_matrix,
                                            system_rhs);
+
   }
 }
-
-
-
 
 
 template <int dim>
@@ -519,6 +574,8 @@ void NonlinearProblem<dim>::output_results(unsigned int cycle)
 }
 
 
+
+
 template <int dim>
 void NonlinearProblem<dim>::run_picard(bool first_cycle)
 {
@@ -535,24 +592,63 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
             << dof_handler.n_dofs()
             << std::endl;
 
+
+  // For debugging
+
+  current_domain = FLAG_IN;
+  make_constraints();
+  cache_interface();
   std::cout << "  Number of lagrangian points: "
             << cache_boundary_values.size()
             << std::endl;
 
+  std::cout << "  Start to assemble system FLAG_IN" << std::endl;
+  assemble_system_poisson();
+  std::cout << "  End of assemble system" << std::endl;
 
-  // // For debugging
-  // std::cout << "  Start to assemble system" << std::endl;
-  // assemble_system_poisson();
-  // std::cout << "  End of assemble system" << std::endl;
+  std::cout << "  Start to solve..." << std::endl;
+  solve_picard();
+  std::cout << "  End of solve" << std::endl;
+  // reinitialize_distance_field_poisson(dof_handler, old_solution, solution);
+  output_results(1);
 
-  // std::cout << "  Start to solve..." << std::endl;
-  // solve_picard();
-  // std::cout << "  End of solve" << std::endl;
 
-  // // reinitialize_distance_field_poisson(dof_handler, old_solution, solution);
-  // output_results(1);
+  current_domain = FLAG_OUT;
+  make_constraints();
+  cache_interface();
+  std::cout << "  Number of lagrangian points: "
+            << cache_boundary_values.size()
+            << std::endl;
+
+  std::cout << "  Start to assemble system FLAG_OUT" << std::endl;
+  assemble_system_poisson();
+  std::cout << "  End of assemble system" << std::endl;
+
+  std::cout << "  Start to solve..." << std::endl;
+  solve_picard();
+  std::cout << "  End of solve" << std::endl;
+  // reinitialize_distance_field_poisson(dof_handler, old_solution, solution);
+  output_results(2);
+
+
+  current_domain = FLAG_TR;
+  make_constraints();
+  std::cout << "  Start to assemble system FLAG_TR" << std::endl;
+  assemble_system_poisson();
+  std::cout << "  End of assemble system" << std::endl;
+
+  std::cout << "  Start to solve..." << std::endl;
+  solve_picard();
+  std::cout << "  End of solve" << std::endl;
+  // reinitialize_distance_field_poisson(dof_handler, old_solution, solution);
+  output_results(3); 
   // exit(0);
 
+
+  current_domain = FLAG_OUT;
+  constraints.clear();
+  DoFTools::make_hanging_node_constraints(dof_handler, constraints);
+  constraints.close();
 
   unsigned int picard_step = 0;
   double res = 1e3;
@@ -581,9 +677,9 @@ void NonlinearProblem<dim>::run_picard(bool first_cycle)
 
   time_step++;
 
-  reinitialize_distance_field(dof_handler, old_solution, solution);
-  // output_results(1);
-  // exit(0);
+  // reinitialize_distance_field(dof_handler, old_solution, solution);
+  output_results(4);
+  exit(0);
 
 }
 

@@ -16,13 +16,13 @@ template <int dim>
 Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point, double time)
 {
   Tensor<1, dim> vel;
-  vel[0] = 1.;
-  // vel[0] = 0.;
+  // vel[0] = 1.;
+  vel[0] = 0.;
   vel[1] = 0;
 
-  double T = 2;
-  vel[0] = -2 * sin(M_PI * point[0]) * sin(M_PI * point[0]) * cos(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
-  vel[1] = 2 * cos(M_PI * point[0]) * sin(M_PI * point[0]) * sin(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
+  // double T = 2;
+  // vel[0] = -2 * sin(M_PI * point[0]) * sin(M_PI * point[0]) * cos(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
+  // vel[1] = 2 * cos(M_PI * point[0]) * sin(M_PI * point[0]) * sin(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
 
   return vel;
 }
