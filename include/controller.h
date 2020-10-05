@@ -36,16 +36,14 @@ template <int dim>
 void TimeEvolution<dim>::run()
 {
 
-  // test_speed();
-  // exit(0);
-
-
   GridGenerator::hyper_cube(triangulation, 0, 1);
   triangulation.refine_global(6);
 
   int total_time_steps = 1000;
   // vortex
-  // double dt = 10*1e-3;
+  // double T = 1;
+  // double dt = T / total_time_steps;
+  // double dt = 10 * 1e-3;
 
   // moving square
   double dt = 2 * 1e-3;
@@ -53,15 +51,11 @@ void TimeEvolution<dim>::run()
   NonlinearProblem<2> problem(triangulation, velocity, dt);
   // PoissonProblem<2> problem(triangulation, velocity);
 
-  for (int i = 1; i < total_time_steps; ++i)
+  for (int i = 0; i < total_time_steps; ++i)
   {
     problem.cycle_no = i;
     std::cout << std::endl << "  cycle: " << i << std::endl;
-    if (i == 1)
-      problem.run_picard(true);
-    else
-      problem.run_picard(false);
-    problem.output_results(i);
+    problem.run_picard();
   }
 
 }

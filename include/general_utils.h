@@ -3,6 +3,23 @@
 
 using namespace dealii;
 
+template <int dim>
+class BoundaryValues : public Function<dim>
+{
+public:
+  BoundaryValues()
+    : Function<dim>()
+  {}
+  virtual double value(const Point<dim> & p,
+                       const unsigned int component = 0) const override;
+};
+template <int dim>
+double BoundaryValues<dim>::value(const Point<dim> & p,
+                                  const unsigned int component) const
+{
+  return -1;
+}
+
 
 template <int dim>
 class AdvectionVelocity
@@ -16,11 +33,11 @@ template <int dim>
 Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point, double time)
 {
   Tensor<1, dim> vel;
-  // vel[0] = 1.;
-  vel[0] = 0.;
+  vel[0] = 1.;
+  // vel[0] = 0.;
   vel[1] = 0;
 
-  // double T = 2;
+  // double T = 1;
   // vel[0] = -2 * sin(M_PI * point[0]) * sin(M_PI * point[0]) * cos(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
   // vel[1] = 2 * cos(M_PI * point[0]) * sin(M_PI * point[0]) * sin(M_PI * point[1]) * sin(M_PI * point[1]) * cos(M_PI * time / T);
 
@@ -155,9 +172,18 @@ void lagrangian_shift(AdvectionVelocity<dim> &velocity,
   for (int i = 0; i < length; ++i)
   {
     boundary_values[i] = 0;
-    Tensor<1, dim> shift = velocity.get_velocity(target_points[i], time) * dt;
-    target_points[i] += shift;
-    distance_vectors[i] += shift;
+    int time_division = 100;
+    double delta_t = dt / time_division;
+    for (int j = 0; j < time_division; ++j)
+    {
+      Tensor<1, dim> shift = velocity.get_velocity(target_points[i], time + j * delta_t) * delta_t;
+      target_points[i] += shift;
+      distance_vectors[i] += shift;
+    }
+
+    // Tensor<1, dim> shift = velocity.get_velocity(target_points[i], time) * dt;
+    // target_points[i] += shift;
+    // distance_vectors[i] += shift;
   }
 }
 
@@ -321,47 +347,42 @@ void initialize_distance_field_quadratic(hp::DoFHandler<dim> &dof_handler, Vecto
 template <int dim>
 void reinitialize_distance_field(hp::DoFHandler<dim> &dof_handler,
                                  Vector<double> &old_solution,
-                                 Vector<double> &solution)
+                                 Vector<double> &solution,
+                                 const int FLAG_BAND)
 {
   unsigned int length = dof_handler.n_dofs();
   std::vector<Point<dim>> support_points(length);
   set_support_points(dof_handler, support_points);
 
-  for (unsigned int i = 0; i < length; i++)
+  std::vector<types::global_dof_index> local_dof_indices;
+  typename hp::DoFHandler<dim>::active_cell_iterator
+  cell = dof_handler.begin_active(),
+  endc = dof_handler.end();
+  for (; cell != endc; ++cell)
   {
-    if (old_solution(i) > 0.01)
+    if (cell->material_id() == FLAG_BAND)
     {
-      unsigned int unit = 1;
-      std::vector<Point<dim>> target_points(unit);
-      std::vector<Tensor<1, dim> > normal_vectors(unit);
-      std::vector<Tensor<1, dim> > distance_vectors(unit);
-      std::vector<Point<dim>> points;
-      points.push_back(support_points[i]);
+      unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
+      local_dof_indices.resize(dofs_per_cell);
+      cell->get_dof_indices(local_dof_indices);
+      for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
+      {
+        int global_index = local_dof_indices[i];
+        unsigned int unit = 1;
+        std::vector<Point<dim>> target_points(unit);
+        std::vector<Tensor<1, dim> > normal_vectors(unit);
+        std::vector<Tensor<1, dim> > distance_vectors(unit);
+        std::vector<Point<dim>> points;
+        points.push_back(support_points[global_index]);
 
-      sbm_map(target_points, normal_vectors, distance_vectors, points, unit, dof_handler, old_solution);
-      solution(i) = normal_vectors[0] * distance_vectors[0];
-    }
-  }
-}
-
-
-template <int dim>
-void reinitialize_distance_field_poisson(hp::DoFHandler<dim> &dof_handler,
-    Vector<double> &old_solution,
-    Vector<double> &solution)
-{
-  unsigned int length = dof_handler.n_dofs();
-  std::vector<Point<dim>> support_points(length);
-  set_support_points(dof_handler, support_points);
-
-  for (unsigned int i = 0; i < length; i++)
-  {
-    if (old_solution(i) < 0.1)
-    {
-      solution(i) = old_solution(i);
+        sbm_map(target_points, normal_vectors, distance_vectors, points, unit, dof_handler, old_solution);
+        solution(global_index) = normal_vectors[0] * distance_vectors[0];
+      }
     }
   }
 
 }
+
+
 
 #endif
