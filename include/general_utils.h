@@ -16,8 +16,8 @@ template <int dim>
 Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point, double time)
 {
   Tensor<1, dim> vel;
-  vel[0] = 1.;
-  // vel[0] = 0.;
+  // vel[0] = 1.;
+  vel[0] = 0.;
   vel[1] = 0;
 
   double T = 2;
@@ -224,6 +224,7 @@ void initialize_distance_field_circle(hp::DoFHandler<dim> &dof_handler, Vector<d
   {
     Tensor<1, dim> rel_pos = support_points[i] - center;
     solution(i) = radius - rel_pos.norm();
+    solution(i) *= pow(support_points[i][0] - 0.25, 2) +  pow(support_points[i][1] - 0.25, 2) + 0.1;
   }
 }
 
@@ -289,6 +290,7 @@ void initialize_distance_field_square(hp::DoFHandler<dim> &dof_handler, Vector<d
   for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
   {
     solution(i) = signed_distance_square(support_points[i], center, side_length);
+    solution(i) *= pow(support_points[i][0] - 0.1, 2) +  pow(support_points[i][1] - 0.1, 2) + 0.1;
   }
 }
 
