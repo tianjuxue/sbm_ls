@@ -5,25 +5,6 @@
 
 
 template <int dim>
-class BoundaryValues : public Function<dim>
-{
-public:
-  BoundaryValues()
-    : Function<dim>()
-  {}
-  virtual double value(const Point<dim> & p,
-                       const unsigned int component = 0) const override;
-};
-template <int dim>
-double BoundaryValues<dim>::value(const Point<dim> & p,
-                                  const unsigned int component) const
-{
-  return -0.1;
-}
-
-
-
-template <int dim>
 class PoissonProblem
 {
 public:
