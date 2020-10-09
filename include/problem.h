@@ -52,10 +52,16 @@ private:
 
   double dt;
   int time_step;
-  int FLAG_IN;
-  int FLAG_OUT;
-  int FLAG_BAND;
-  int current_domain;
+  unsigned int FLAG_IN;
+  unsigned int FLAG_OUT;
+  unsigned int FLAG_IN_BAND;
+  unsigned int FLAG_OUT_BAND;
+
+  int solver_type;
+  int DISTANCE_SOLVER;
+  int POISSON_BAND_SOLVER;
+  int DISTANCE_BAND_SOLVER;
+
 };
 
 
@@ -75,8 +81,12 @@ NonlinearProblem<dim>::NonlinearProblem(Triangulation<dim> &triangulation_,
   time_step(0),
   FLAG_IN(0),
   FLAG_OUT(1),
-  FLAG_BAND(2),
-  current_domain(-1)
+  FLAG_IN_BAND(2),
+  FLAG_OUT_BAND(3),
+  solver_type(0),
+  DISTANCE_SOLVER(0),
+  POISSON_BAND_SOLVER(1),
+  DISTANCE_BAND_SOLVER(2)
 {
 
   int fe_degree = 1;
@@ -124,7 +134,7 @@ void NonlinearProblem<dim>::cache_interface()
     {
       if (!cell->face(face_no)->at_boundary())
       {
-        if (cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() != FLAG_IN)
+        if (cell->material_id() == FLAG_IN_BAND && cell->neighbor(face_no)->material_id() == FLAG_OUT_BAND)
         {
           fe_values_face_hp.reinit(cell, face_no);
           const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
@@ -163,23 +173,90 @@ void NonlinearProblem<dim>::cache_interface()
 template <int dim>
 void NonlinearProblem<dim>::make_constraints()
 {
-  constraints.clear();
-  for (unsigned int i = 0; i < dof_flags.size(); ++i)
+  dof_flags.clear();
+  int tmp_flag = 100;
+  dof_flags.insert(dof_flags.end(), dof_handler.n_dofs(), tmp_flag);
+
+  if (solver_type == POISSON_BAND_SOLVER)
   {
-    if (dof_flags[i] != current_domain)
+
+    std::vector<types::global_dof_index> local_dof_indices;
+    for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
+         cell != dof_handler.end(); ++cell)
     {
-      constraints.add_line(i);
-      constraints.set_inhomogeneity(i, solution[i]);
+      unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
+      local_dof_indices.resize(dofs_per_cell);
+      cell->get_dof_indices(local_dof_indices);
+      for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
+      {
+        if (cell->material_id() == FLAG_IN)
+        {
+          dof_flags[local_dof_indices[i]] = FLAG_IN;
+        }
+        else if ((cell->material_id() == FLAG_OUT))
+        {
+          dof_flags[local_dof_indices[i]] = FLAG_OUT;
+        }
+      }
     }
-  }
 
-  if (current_domain == FLAG_OUT)
+    constraints.clear();
+    for (unsigned int i = 0; i < dof_flags.size(); ++i)
+    {
+      if (dof_flags[i] == FLAG_IN)
+      {
+        constraints.add_line(i);
+        constraints.set_inhomogeneity(i, 1.);
+      }
+      else if (dof_flags[i] == FLAG_OUT)
+      {
+        constraints.add_line(i);
+        constraints.set_inhomogeneity(i, -1);
+      }
+    }
+    constraints.close();
+  }
+  else if (solver_type == DISTANCE_BAND_SOLVER)
   {
-    VectorTools::interpolate_boundary_values(dof_handler, 0, BoundaryValues<dim>(), constraints);
-  }
+    std::vector<types::global_dof_index> local_dof_indices;
+    for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
+         cell != dof_handler.end(); ++cell)
+    {
+      unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
+      local_dof_indices.resize(dofs_per_cell);
+      cell->get_dof_indices(local_dof_indices);
+      for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
+      {
+        if (cell->material_id() == FLAG_IN_BAND)
+        {
+          dof_flags[local_dof_indices[i]] = FLAG_IN_BAND;
+        }
+        else if ((cell->material_id() == FLAG_OUT_BAND))
+        {
+          dof_flags[local_dof_indices[i]] = FLAG_OUT_BAND;
+        }
+      }
+    }
 
-  constraints.close();
+    constraints.clear();
+    for (unsigned int i = 0; i < dof_flags.size(); ++i)
+    {
+      if (dof_flags[i] == tmp_flag)
+      {
+        constraints.add_line(i);
+        constraints.set_inhomogeneity(i, solution(i));
+      }
+    }
+    constraints.close();
+  }
+  else if (solver_type == DISTANCE_SOLVER)
+  {
+    constraints.clear();
+    // VectorTools::interpolate_boundary_values(dof_handler, 0, BoundaryValues<dim>(), constraints);
+    constraints.close();
+  }
 }
+
 
 
 template <int dim>
@@ -196,9 +273,8 @@ void NonlinearProblem<dim>::setup_system()
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
 
-    // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.5), 0.25);
-    initialize_distance_field_square(dof_handler, solution, Point<dim>(0.5, 0.5), 0.4);
-    // initialize_distance_field_circle(dof_handler, solution, Point<dim>(0.5, 0.75), 0.15);
+    initialize_distance_field_circle(dof_handler, solution, Point<dim>(0., 0.), 1);
+    // initialize_distance_field_square(dof_handler, solution, Point<dim>(0.0, 0.0), 1.6);
 
     old_solution = solution;
     output_results(cycle_no);
@@ -221,9 +297,13 @@ void NonlinearProblem<dim>::setup_system()
   for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
        cell != dof_handler.end(); ++cell)
   {
-    if (old_solution(cell->vertex_dof_index(0, 0, 0)) > 0 &&
-        old_solution(cell->vertex_dof_index(1, 0, 0)) > 0 &&
-        old_solution(cell->vertex_dof_index(2, 0, 0)) > 0 &&
+    // if (old_solution(cell->vertex_dof_index(0, 0, 0)) > 0 &&
+    //     old_solution(cell->vertex_dof_index(1, 0, 0)) > 0 &&
+    //     old_solution(cell->vertex_dof_index(2, 0, 0)) > 0 &&
+    //     old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
+    if (old_solution(cell->vertex_dof_index(0, 0, 0)) +
+        old_solution(cell->vertex_dof_index(1, 0, 0)) +
+        old_solution(cell->vertex_dof_index(2, 0, 0)) +
         old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
     {
       cell->set_material_id(FLAG_IN);
@@ -234,68 +314,49 @@ void NonlinearProblem<dim>::setup_system()
       cell->set_material_id(FLAG_OUT);
     }
   }
+  std::cout << "  Number of inner surrogate cells " << counter_in << std::endl;
+
 
   int counter_band = 0;
-  unsigned int band_width = 1;
+  unsigned int band_width = 6;
   for (int i = 0; i < band_width; ++i)
   {
     for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
          cell != dof_handler.end(); ++cell)
     {
+      cell->clear_user_flag();
       for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
       {
         if (!cell->face(face_no)->at_boundary())
         {
-          if ( (cell->material_id() == FLAG_IN) && cell->neighbor(face_no)->material_id() == FLAG_OUT)
+          if ( (cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() != FLAG_IN) ||
+               (cell->material_id() == FLAG_OUT && cell->neighbor(face_no)->material_id() != FLAG_OUT) )
           {
-            cell->neighbor(face_no)->set_material_id(FLAG_BAND);
-            counter_band++;
+            cell->set_user_flag();
           }
+        }
+      }
+    }
+    for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
+         cell != dof_handler.end(); ++cell)
+    {
+      if (cell->user_flag_set())
+      {
+        counter_band++;
+        if (cell->material_id() == FLAG_IN)
+        {
+          cell->set_material_id(FLAG_IN_BAND);
+        }
+        else if (cell->material_id() == FLAG_OUT)
+        {
+          cell->set_material_id(FLAG_OUT_BAND);
         }
       }
     }
   }
 
-  std::cout << "  Number of inner surrogate cells " << counter_in << std::endl;
-  std::cout << "  Number of band surrogate cells " << counter_band << std::endl;
+  std::cout << "  Number of band cells " << counter_band << std::endl;
 
-  dof_flags.clear();
-  dof_flags.insert(dof_flags.end(), dof_handler.n_dofs(), FLAG_BAND);
-
-  std::vector<types::global_dof_index> local_dof_indices;
-  for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
-       cell != dof_handler.end(); ++cell)
-  {
-    unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
-    local_dof_indices.resize(dofs_per_cell);
-    cell->get_dof_indices(local_dof_indices);
-    for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
-    {
-      if (cell->material_id() == FLAG_IN)
-      {
-        dof_flags[local_dof_indices[i]] = FLAG_IN;
-      }
-      else if ((cell->material_id() == FLAG_OUT))
-      {
-        dof_flags[local_dof_indices[i]] = FLAG_OUT;
-      }
-    }
-  }
-
-  for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
-       cell != dof_handler.end(); ++cell)
-  {
-    unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
-    local_dof_indices.resize(dofs_per_cell);
-    cell->get_dof_indices(local_dof_indices);
-    for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
-    {
-      if (cell->material_id() == FLAG_BAND)
-      {
-        dof_flags[local_dof_indices[i]] = FLAG_BAND;
-      }
-    }
-  }
 
 }
 
@@ -343,74 +404,75 @@ void NonlinearProblem<dim>::assemble_system_picard()
     local_rhs = 0;
     cell->get_dof_indices(local_dof_indices);
 
-    // if (cell->material_id() != FLAG_OUT)
-    // {
-    std::vector<double> solution_values(n_q_points);
-    fe_values.get_function_values(solution, solution_values);
-    std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
-    fe_values.get_function_gradients(solution, solution_gradients);
-
-    for (unsigned int q = 0; q < n_q_points; ++q)
+    if (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND || solver_type == DISTANCE_SOLVER)
     {
-      double grad_norm = solution_gradients[q].norm();
-      Tensor<1, dim> part_d = solution_gradients[q] / grad_norm;
+      std::vector<double> solution_values(n_q_points);
+      fe_values.get_function_values(solution, solution_values);
+      std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
+      fe_values.get_function_gradients(solution, solution_gradients);
 
-      for (unsigned int i = 0; i < dofs_per_cell; ++i)
+      for (unsigned int q = 0; q < n_q_points; ++q)
       {
-        for (unsigned int j = 0; j < dofs_per_cell; ++j)
+        double grad_norm = solution_gradients[q].norm();
+        Tensor<1, dim> part_d = solution_gradients[q] / grad_norm;
+
+        for (unsigned int i = 0; i < dofs_per_cell; ++i)
         {
-          local_matrix(i, j) += fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
+          for (unsigned int j = 0; j < dofs_per_cell; ++j)
+          {
+            local_matrix(i, j) += fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
+          }
+          local_rhs(i) += part_d * fe_values.shape_grad(i, q) * fe_values.JxW(q);
         }
-        local_rhs(i) += part_d * fe_values.shape_grad(i, q) * fe_values.JxW(q);
+
       }
 
-    }
-
-    for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
-    {
-      if (cell->face(face_no)->at_boundary()) /* Exterior boundary */
+      for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
       {
-        fe_values_face_hp.reinit(cell, face_no);
-        const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
-        unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
-
-        for (unsigned int q = 0; q < n_face_q_points; ++q)
+        if (cell->face(face_no)->at_boundary()) /* Exterior boundary */
         {
-          for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          fe_values_face_hp.reinit(cell, face_no);
+          const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
+          unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
+
+          for (unsigned int q = 0; q < n_face_q_points; ++q)
           {
-            double neumann_boundary_value = 0.;
-            local_rhs(i) += neumann_boundary_value * fe_values_face.shape_value(i, q) *
-                            fe_values_face.JxW(q);
+            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            {
+              double neumann_boundary_value = 0.;
+              local_rhs(i) += neumann_boundary_value * fe_values_face.shape_value(i, q) *
+                              fe_values_face.JxW(q);
+            }
           }
         }
-      }
-      else if (cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() != FLAG_IN)
-      {
-        fe_values_face_hp.reinit(cell, face_no);
-        const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
-        unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
-
-        std::vector<Tensor<1, dim> > distance_vectors = cache_distance_vectors[cache_index];
-        std::vector<double> boundary_values = cache_boundary_values[cache_index];
-        cache_index++;
-
-        // std::vector<double> solution_values_face(n_face_q_points);
-        // fe_values_face.get_function_values(solution, solution_values_face);
-        // std::vector<Tensor<1, dim>> solution_gradients_face(n_face_q_points);
-        // fe_values_face.get_function_gradients(solution, solution_gradients_face);
-
-        for (unsigned int q = 0; q < n_face_q_points; ++q)
+        else if (cell->material_id() == FLAG_IN_BAND && cell->neighbor(face_no)->material_id() == FLAG_OUT_BAND)
         {
-          for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          fe_values_face_hp.reinit(cell, face_no);
+          const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
+          unsigned int n_face_q_points = fe_values_face.n_quadrature_points;
+
+          std::vector<Tensor<1, dim> > distance_vectors = cache_distance_vectors[cache_index];
+          std::vector<double> boundary_values = cache_boundary_values[cache_index];
+          cache_index++;
+
+          // std::vector<double> solution_values_face(n_face_q_points);
+          // fe_values_face.get_function_values(solution, solution_values_face);
+          // std::vector<Tensor<1, dim>> solution_gradients_face(n_face_q_points);
+          // fe_values_face.get_function_gradients(solution, solution_gradients_face);
+
+          for (unsigned int q = 0; q < n_face_q_points; ++q)
           {
-            for (unsigned int j = 0; j < dofs_per_cell; ++j)
+            for (unsigned int i = 0; i < dofs_per_cell; ++i)
             {
-              local_matrix(i, j) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-                                    (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
-                                    fe_values_face.JxW(q);
+              for (unsigned int j = 0; j < dofs_per_cell; ++j)
+              {
+                local_matrix(i, j) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+                                      (fe_values_face.shape_value(j, q) + fe_values_face.shape_grad(j, q) * distance_vectors[q]) *
+                                      fe_values_face.JxW(q);
+              }
+              local_rhs(i) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
+                              boundary_values[q] * fe_values_face.JxW(q);
             }
-            local_rhs(i) += alpha / h * (fe_values_face.shape_value(i, q) + fe_values_face.shape_grad(i, q) * distance_vectors[q]) *
-                            boundary_values[q] * fe_values_face.JxW(q);
           }
         }
       }
@@ -471,14 +533,8 @@ void NonlinearProblem<dim>::assemble_system_poisson()
     local_rhs = 0;
     cell->get_dof_indices(local_dof_indices);
 
-    if (cell->material_id() == current_domain)
+    if (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND)
     {
-      double source;
-      if (current_domain == FLAG_IN)
-        source = 10;
-      else
-        source = -10;
-
       std::vector<double> solution_values(n_q_points);
       fe_values.get_function_values(solution, solution_values);
       std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
@@ -492,7 +548,7 @@ void NonlinearProblem<dim>::assemble_system_poisson()
           {
             local_matrix(i, j) += fe_values.shape_grad(i, q) * fe_values.shape_grad(j, q) * fe_values.JxW(q);
           }
-          local_rhs(i) += source * fe_values.shape_value(i, q) * fe_values.JxW(q);
+          local_rhs(i) += 0 * fe_values.shape_value(i, q) * fe_values.JxW(q);
         }
       }
 
@@ -522,7 +578,7 @@ void NonlinearProblem<dim>::assemble_system_poisson()
       //       }
       //     }
       //   }
-      //   else if (cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() != FLAG_IN)
+      //   else if (cell->material_id() == FLAG_IN_BAND && cell->neighbor(face_no)->material_id() == FLAG_OUT_BAND)
       //   {
 
       //     fe_values_face_hp.reinit(cell, face_no);
@@ -618,16 +674,23 @@ void NonlinearProblem<dim>::run_picard()
             << std::endl;
 
 
-  // constraints.clear();
-  // for (unsigned int i = 0; i < dof_flags.size(); ++i)
-  // {
-  //   if (dof_flags[i] == FLAG_OUT)
-  //   {
-  //     constraints.add_line(i);
-  //     constraints.set_inhomogeneity(i, solution[i]);
-  //   }
-  // }
-  // constraints.close();
+  solver_type = POISSON_BAND_SOLVER;
+  make_constraints();
+  std::cout << "  Start to assemble system FLAG_IN" << std::endl;
+  assemble_system_poisson();
+  std::cout << "  End of assemble system" << std::endl;
+
+  std::cout << "  Start to solve..." << std::endl;
+  solve_picard();
+  std::cout << "  End of solve" << std::endl;
+  output_results(1);
+
+
+  solver_type = DISTANCE_BAND_SOLVER;
+  make_constraints();
+  std::cout << "  Number of lagrangian points: "
+            << cache_boundary_values.size()
+            << std::endl;
 
   unsigned int picard_step = 0;
   double res = 1e3;
@@ -650,50 +713,14 @@ void NonlinearProblem<dim>::run_picard()
 
     old_solution = solution;
     picard_step++;
-    // output_results(picard_step);
+    output_results(picard_step + 1);
   }
 
-  output_results(cycle_no + 1);
-  // output_results(1);
-
-  // reinitialize_distance_field(dof_handler, old_solution, solution, FLAG_BAND);
-  // output_results(2);
-
-  current_domain = FLAG_IN;
-  make_constraints();
-  std::cout << "  Number of lagrangian points: "
-            << cache_boundary_values.size()
-            << std::endl;
-
-  std::cout << "  Start to assemble system FLAG_IN" << std::endl;
-  assemble_system_poisson();
-  std::cout << "  End of assemble system" << std::endl;
-
-  std::cout << "  Start to solve..." << std::endl;
-  solve_picard();
-  std::cout << "  End of solve" << std::endl;
-  // output_results(3);
-
-
-  // current_domain = FLAG_OUT;
-  // make_constraints();
-  // std::cout << "  Number of lagrangian points: "
-  //           << cache_boundary_values.size()
-  //           << std::endl;
-
-  // std::cout << "  Start to assemble system FLAG_OUT" << std::endl;
-  // assemble_system_poisson();
-  // std::cout << "  End of assemble system" << std::endl;
-
-  // std::cout << "  Start to solve..." << std::endl;
-  // solve_picard();
-  // std::cout << "  End of solve" << std::endl;
-  // // output_results(4);
-
+  // output_results(cycle_no + 1);
 
   time_step++;
 
-  // exit(0);
+  exit(0);
 
 }
 

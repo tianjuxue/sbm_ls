@@ -36,7 +36,7 @@ template <int dim>
 void TimeEvolution<dim>::run()
 {
 
-  GridGenerator::hyper_cube(triangulation, 0, 1);
+  GridGenerator::hyper_cube(triangulation, -2, 2);
   triangulation.refine_global(6);
 
   int total_time_steps = 1000;

@@ -33,8 +33,8 @@ template <int dim>
 Tensor<1, dim> AdvectionVelocity<dim>::get_velocity(Point<dim> &point, double time)
 {
   Tensor<1, dim> vel;
-  vel[0] = 1.;
-  // vel[0] = 0.;
+  // vel[0] = 1.;
+  vel[0] = 0.;
   vel[1] = 0;
 
   // double T = 1;
@@ -79,18 +79,18 @@ void sbm_map(std::vector<Point<dim>> &target_points,
 
     phi = VectorTools::point_value(dof_handler, solution, target_point);
     grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
-
+ 
     while (res > tol && step < max_step)
     {
       delta1 = -phi * grad_phi / (grad_phi * grad_phi);
       delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
       target_point = target_point + relax_param * (delta1 + delta2);
 
-      // Bound the point, to change
-      target_point[0] = target_point[0] > 1 ? 0.5 : target_point[0];
-      target_point[0] = target_point[0] < 0 ? 0.5 : target_point[0];
-      target_point[1] = target_point[1] > 1 ? 0.5 : target_point[1];
-      target_point[1] = target_point[1] < 0 ? 0.5 : target_point[1];
+      // TODO: Bound the point, hard code, change
+      target_point[0] = target_point[0] > 2 ? 0. : target_point[0];
+      target_point[0] = target_point[0] < -2 ? 0. : target_point[0];
+      target_point[1] = target_point[1] > 2 ? 0. : target_point[1];
+      target_point[1] = target_point[1] < -2 ? 0. : target_point[1];
 
       phi = VectorTools::point_value(dof_handler, solution, target_point);
       grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
@@ -250,6 +250,7 @@ void initialize_distance_field_circle(hp::DoFHandler<dim> &dof_handler, Vector<d
   {
     Tensor<1, dim> rel_pos = support_points[i] - center;
     solution(i) = radius - rel_pos.norm();
+    // solution(i) *= pow(support_points[i][0] - 0.25, 2) +  pow(support_points[i][1] - 0.25, 2) + 0.1;
   }
 }
 
@@ -315,6 +316,7 @@ void initialize_distance_field_square(hp::DoFHandler<dim> &dof_handler, Vector<d
   for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
   {
     solution(i) = signed_distance_square(support_points[i], center, side_length);
+    // solution(i) *= pow(support_points[i][0] - 1, 2) +  pow(support_points[i][1] - 1, 2) + 0.1;
   }
 }
 
