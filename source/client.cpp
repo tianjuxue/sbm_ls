@@ -98,25 +98,13 @@
 #include <iomanip>
 
 #include "general_utils.h"
-#include "poisson_problem.h"
-#include "controller.h"
+#include "error_estimate.h"
 #include "problem.h"
 
 
 int main ()
 {
-  bool debug = true;
-  if (debug)
-  {
-    TimeEvolution<2> TimeEvolution;
-    TimeEvolution.run();
-  }
-  else
-  {
-    TimeEvolution<2> TimeEvolution;
-    TimeEvolution.run();
-  }
-
-
+  NonlinearProblem<2> problem;
+  problem.run_picard();
   return 0;
 }
