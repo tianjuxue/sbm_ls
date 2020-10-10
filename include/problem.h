@@ -145,17 +145,23 @@ void NonlinearProblem<dim>::cache_interface()
           std::vector<Tensor<1, dim> > distance_vectors(n_face_q_points);
           std::vector<double> boundary_values(n_face_q_points);
           std::vector<Point<dim>> quadrature_points = fe_values_face.get_quadrature_points();
-          sbm_map(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution);
-          // compute_boundary_values(velocity, target_points, normal_vectors, boundary_values, n_face_q_points);
 
-          for (unsigned int i = 0; i < n_face_q_points; ++i)
+          for (unsigned int q = 0; q < n_face_q_points; ++q)
           {
-            raw_file << std::fixed << std::setprecision(8) << quadrature_points[i][0] << " " << quadrature_points[i][1] << std::endl;
-            map_file << std::fixed << std::setprecision(8) << target_points[i][0] << " " << target_points[i][1] << std::endl;
-            bv_file << std::fixed << std::setprecision(8) << boundary_values[i] << std::endl;
+            normal_vectors[q] = fe_values_face.normal_vector(q);
           }
 
-          lagrangian_shift(velocity, target_points, distance_vectors, boundary_values, dt, dt * time_step, n_face_q_points);
+          // sbm_map(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution);
+          sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution, h);
+
+          for (unsigned int q = 0; q < n_face_q_points; ++q)
+          {
+            raw_file << std::fixed << std::setprecision(8) << quadrature_points[q][0] << " " << quadrature_points[q][1] << std::endl;
+            map_file << std::fixed << std::setprecision(8) << target_points[q][0] << " " << target_points[q][1] << std::endl;
+            bv_file << std::fixed << std::setprecision(8) << boundary_values[q] << std::endl;
+          }
+
+          // lagrangian_shift(velocity, target_points, distance_vectors, boundary_values, dt, dt * time_step, n_face_q_points);
           cache_distance_vectors.push_back(distance_vectors);
           cache_boundary_values.push_back(boundary_values);
 
@@ -297,14 +303,14 @@ void NonlinearProblem<dim>::setup_system()
   for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
        cell != dof_handler.end(); ++cell)
   {
-    // if (old_solution(cell->vertex_dof_index(0, 0, 0)) > 0 &&
-    //     old_solution(cell->vertex_dof_index(1, 0, 0)) > 0 &&
-    //     old_solution(cell->vertex_dof_index(2, 0, 0)) > 0 &&
-    //     old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
-    if (old_solution(cell->vertex_dof_index(0, 0, 0)) +
-        old_solution(cell->vertex_dof_index(1, 0, 0)) +
-        old_solution(cell->vertex_dof_index(2, 0, 0)) +
+    if (old_solution(cell->vertex_dof_index(0, 0, 0)) > 0 &&
+        old_solution(cell->vertex_dof_index(1, 0, 0)) > 0 &&
+        old_solution(cell->vertex_dof_index(2, 0, 0)) > 0 &&
         old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
+    // if (old_solution(cell->vertex_dof_index(0, 0, 0)) +
+    //     old_solution(cell->vertex_dof_index(1, 0, 0)) +
+    //     old_solution(cell->vertex_dof_index(2, 0, 0)) +
+    //     old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
     {
       cell->set_material_id(FLAG_IN);
       counter_in++;

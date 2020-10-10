@@ -79,7 +79,7 @@ void sbm_map(std::vector<Point<dim>> &target_points,
 
     phi = VectorTools::point_value(dof_handler, solution, target_point);
     grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
- 
+
     while (res > tol && step < max_step)
     {
       delta1 = -phi * grad_phi / (grad_phi * grad_phi);
@@ -138,6 +138,57 @@ void sbm_map(std::vector<Point<dim>> &target_points,
 
   std::cout << std::endl;
 
+}
+
+
+template <int dim>
+void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
+                           std::vector<Tensor<1, dim>> &normal_vectors,
+                           std::vector<Tensor<1, dim>> &distance_vectors,
+                           const std::vector<Point<dim>> &points,
+                           int length,
+                           hp::DoFHandler<dim> &dof_handler,
+                           Vector<double> &solution,
+                           double h)
+{
+
+  for (int i = 0; i < length; ++i)
+  {
+    Point<dim> begin_point = points[i];
+    Tensor<1, dim> normal_vector = normal_vectors[i];
+    Point<dim> end_point = begin_point;
+    double phi;
+    do
+    {
+      end_point += h * normal_vector;
+      phi = VectorTools::point_value(dof_handler, solution, end_point);
+    }
+    while (phi > 0);
+
+    double tol = 1e-6;
+    double res;
+    Point<dim> middle_point = begin_point;
+
+    do
+    {
+      res = VectorTools::point_value(dof_handler, solution, middle_point);
+      if (res > 0)
+        begin_point = middle_point;
+      else
+        end_point = middle_point;
+      middle_point = (begin_point + end_point) / 2;
+    }
+    while (abs(res) > tol);
+
+    target_points[i] = middle_point;
+    distance_vectors[i] = target_points[i] - points[i];
+
+    std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
+              << "  phi value "  << VectorTools::point_value(dof_handler, solution, middle_point)
+              << "  mapped points " << middle_point << std::endl;
+  }
+
+  std::cout << std::endl;
 }
 
 

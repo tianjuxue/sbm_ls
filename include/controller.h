@@ -37,7 +37,7 @@ void TimeEvolution<dim>::run()
 {
 
   GridGenerator::hyper_cube(triangulation, -2, 2);
-  triangulation.refine_global(6);
+  triangulation.refine_global(5);
 
   int total_time_steps = 1000;
   // vortex
