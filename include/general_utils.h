@@ -29,7 +29,7 @@ double pore_function_value(Point<dim> &point, double c1, double c2)
   double x = point[0];
   double y = point[1];
   double theta = atan2(y, x);
-  double r_square = (pow(x, 2) + pow(y, 2));
+  double r_square = pow(x, 2) + pow(y, 2);
   double value =  r_square - (1 + c1 * cos(4 * theta) + c2 * cos(8 * theta));
   return -value;
 }
@@ -41,7 +41,7 @@ Tensor<1, dim> pore_function_gradient(Point<dim> &point, double c1, double c2)
   double x = point[0];
   double y = point[1];
   double theta = atan2(y, x);
-  double r_square = (pow(x, 2) + pow(y, 2));
+  double r_square = pow(x, 2) + pow(y, 2);
   Tensor<1, dim> gradient;
   gradient[0] = -4 * c1 * y * sin(4 * theta) / r_square - 8 * c2 * y * sin(8 * theta) / r_square + 2 * x;
   gradient[1] = 4 * c1 * x * sin(4 * theta) / r_square + 8 * c2 * x * sin(8 * theta) / r_square  + 2 * y;
@@ -67,6 +67,12 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
                     hp::DoFHandler<dim> &dof_handler,
                     Vector<double> &solution)
 {
+  // Using FEFieldFunction can be faster than functions defined under VectorTools (e.g., point_value)
+  // See https://www.dealii.org/current/doxygen/deal.II/namespaceVectorTools.html#acd358e9b110ccbf4a7f76796d206b9c7
+  // phi = VectorTools::point_value(dof_handler, solution, target_point);
+  // grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+  Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
+
   for (int i = 0; i < length; ++i)
   {
     // std::cout << std::endl << "  Point is " << points[i] << std::endl;
@@ -81,8 +87,8 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
     int step = 0;
     int max_step = 100;
 
-    phi = VectorTools::point_value(dof_handler, solution, target_point);
-    grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+    phi = fe_field_function.value(target_point);
+    grad_phi = fe_field_function.gradient(target_point);
 
     while (res > tol && step < max_step)
     {
@@ -96,8 +102,8 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
       target_point[1] = target_point[1] > 2 ? 0. : target_point[1];
       target_point[1] = target_point[1] < -2 ? 0. : target_point[1];
 
-      phi = VectorTools::point_value(dof_handler, solution, target_point);
-      grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+      phi = fe_field_function.value(target_point);
+      grad_phi = fe_field_function.gradient(target_point);
       res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
       step++;
 
@@ -117,9 +123,9 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
         // delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
         // target_point = target_point + relax_param * (delta1 + delta2);
         target_point = target_point + relax_param * (delta1);
+        phi = fe_field_function.value(target_point);
+        grad_phi = fe_field_function.gradient(target_point);
 
-        phi = VectorTools::point_value(dof_handler, solution, target_point);
-        grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
         res = abs(phi);
         step++;
       }
@@ -130,11 +136,8 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
     target_points[i] = target_point;
     normal_vectors[i] = -grad_phi / grad_phi.norm();
     distance_vectors[i] = target_point - points[i];
-    // std::cout << "  The target point found: " << target_point << std::endl;
-    // std::cout << "  It should be " << 0.5 * points[i] / points[i].norm() << std::endl;
-
     std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-              << "  phi value "  << VectorTools::point_value(dof_handler, solution, target_point)
+              << "  phi value "  << fe_field_function.value(target_point)
               << "  mapped points " << target_point << std::endl;
 
   }
@@ -201,17 +204,17 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
         res = abs(phi);
         step++;
       }
-      std::cout << "  End of bad point converge at step " << step << " mapped point " << target_point << " phi value " << phi << std::endl;
+      // std::cout << "  End of bad point converge at step " << step << " mapped point " << target_point << " phi value " << phi << std::endl;
     }
 
     target_points[i] = target_point;
     normal_vectors[i] = -grad_phi / grad_phi.norm();
     distance_vectors[i] = target_point - points[i];
-    std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-              << "  phi value "  << pore_function_value(target_point, c1, c2)
-              << "  mapped points " << target_point << std::endl;
+    // std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
+    //           << "  phi value "  << pore_function_value(target_point, c1, c2)
+    //           << "  mapped points " << target_point << std::endl;
   }
-  std::cout << std::endl;
+  // std::cout << std::endl;
 }
 
 
@@ -226,6 +229,8 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
                            double h)
 {
 
+  Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
+
   for (int i = 0; i < length; ++i)
   {
     Point<dim> begin_point = points[i];
@@ -235,7 +240,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     do
     {
       end_point += h * normal_vector;
-      phi = VectorTools::point_value(dof_handler, solution, end_point);
+      phi = fe_field_function.value(end_point);
     }
     while (phi > 0);
 
@@ -245,7 +250,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
 
     do
     {
-      res = VectorTools::point_value(dof_handler, solution, middle_point);
+      res = fe_field_function.value(middle_point);
       if (res > 0)
         begin_point = middle_point;
       else
@@ -258,7 +263,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     distance_vectors[i] = target_points[i] - points[i];
 
     std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-              << "  phi value "  << VectorTools::point_value(dof_handler, solution, middle_point)
+              << "  phi value "  << fe_field_function.value(middle_point)
               << "  mapped points " << middle_point << std::endl;
   }
 
@@ -309,12 +314,12 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     target_points[i] = middle_point;
     distance_vectors[i] = target_points[i] - points[i];
 
-    std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-              << "  phi value "  << pore_function_value(middle_point, c1, c2)
-              << "  mapped points " << middle_point << std::endl;
+    // std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
+    //           << "  phi value "  << pore_function_value(middle_point, c1, c2)
+    //           << "  mapped points " << middle_point << std::endl;
   }
 
-  std::cout << std::endl;
+  // std::cout << std::endl;
 }
 
 

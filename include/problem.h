@@ -1,20 +1,29 @@
 #ifndef PROBLEM
 #define PROBLEM
 
-#include "general_utils.h"
-#include "error_estimate.h"
+// #include "common_definitions.h"
+// #include "general_utils.h"
+// #include "error_estimate.h"
 
 
 template <int dim>
 class NonlinearProblem
 {
 public:
-  NonlinearProblem();
+  NonlinearProblem(unsigned int case_flag_ = PORE_CASE,
+                   unsigned int domain_flag_ = NARROW_BAND,
+                   unsigned int refinement_level_ = 8,
+                   unsigned int map_choice_ = MAP_NEWTON,
+                   int pore_number_ = 2);
   ~NonlinearProblem();
-  void run_picard();
-  void output_results(unsigned int cycle);
-  unsigned int cycle_no;
-
+  void run();
+  void error_analysis();
+  void output_vtk(unsigned int cycle);
+  void output_binary();
+  double h;
+  double L2_error;
+  double SD_error;
+  double interface_error;
 
 private:
   void cache_interface();
@@ -47,44 +56,38 @@ private:
   std::vector<std::vector<double>> cache_boundary_values;
   std::vector<unsigned int> dof_flags;
 
-  double h;
   double alpha;
-
-  unsigned int FLAG_IN;
-  unsigned int FLAG_OUT;
-  unsigned int FLAG_IN_BAND;
-  unsigned int FLAG_OUT_BAND;
-
-  int solver_type;
-  int DISTANCE_SOLVER;
-  int POISSON_BAND_SOLVER;
-  int DISTANCE_BAND_SOLVER;
-
+  unsigned int solver_type;
   double c1;
   double c2;
-
+  unsigned int domain_flag;
+  unsigned int case_flag;
+  int pore_number;
+  unsigned int map_choice;
   unsigned int refinement_level;
+
+  std::string vector_filename;
 
 };
 
 
 template <int dim>
-NonlinearProblem<dim>::NonlinearProblem()
+NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
+                                        unsigned int domain_flag_,
+                                        unsigned int refinement_level_,
+                                        unsigned int map_choice_,
+                                        int pore_number_)
   :
-  cycle_no(0),
   dof_handler(triangulation),
   alpha(1e1), // Magic number, may affect numerical instability
-  FLAG_IN(0),
-  FLAG_OUT(1),
-  FLAG_IN_BAND(2),
-  FLAG_OUT_BAND(3),
   solver_type(0),
-  DISTANCE_SOLVER(0),
-  POISSON_BAND_SOLVER(1),
-  DISTANCE_BAND_SOLVER(2),
-  c1(-0.),
+  c1(0.),
   c2(0.),
-  refinement_level(8)
+  domain_flag(domain_flag_),
+  case_flag(case_flag_),
+  pore_number(pore_number_),
+  map_choice(map_choice_),
+  refinement_level(refinement_level_)
 {
   int fe_degree = 1;
   fe_collection.push_back(FE_Q<dim>(fe_degree));
@@ -112,9 +115,10 @@ void NonlinearProblem<dim>::cache_interface()
   cache_distance_vectors.clear();
   cache_boundary_values.clear();
 
-  std::ofstream raw_file("../data/raw_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
-  std::ofstream map_file("../data/map_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
-  std::ofstream bv_file("../data/bv" + Utilities::int_to_string(cycle_no, 3) + ".txt");
+  int cycle_no = 0;
+  std::ofstream raw_file("../data/text/raw_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
+  std::ofstream map_file("../data/text/map_points" + Utilities::int_to_string(cycle_no, 3) + ".txt");
+  std::ofstream bv_file("../data/text/bv" + Utilities::int_to_string(cycle_no, 3) + ".txt");
 
   hp::FEFaceValues<dim> fe_values_face_hp (fe_collection, q_collection_face,
       update_values    |  update_gradients |
@@ -144,15 +148,30 @@ void NonlinearProblem<dim>::cache_interface()
           std::vector<Point<dim>> quadrature_points = fe_values_face.get_quadrature_points();
 
           for (unsigned int q = 0; q < n_face_q_points; ++q)
-          {
             normal_vectors[q] = fe_values_face.normal_vector(q);
+
+          if (case_flag == PORE_CASE)
+          {
+            if (map_choice == MAP_NEWTON)
+              sbm_map_newton(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, c1, c2);
+            else
+              sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, c1, c2, h);
           }
-
-          // sbm_map_newton(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution);
-          // sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution, h);
-
-          // sbm_map_newton(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, c1, c2);
-          sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, c1, c2, h);
+          else if (case_flag == FEM_CASE)
+          {
+            if (map_choice == MAP_NEWTON)
+              sbm_map_newton(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution);
+            else
+              sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution, h);
+          }
+          else if (case_flag == IMAGE_CASE)
+          {
+            assert(0 && "Image case not implemented yet!");
+          }
+          else
+          {
+            assert(0 && "case_flag should only be 0, 1 or 2");
+          }
 
           for (unsigned int q = 0; q < n_face_q_points; ++q)
           {
@@ -178,30 +197,43 @@ template <int dim>
 void NonlinearProblem<dim>::make_constraints()
 {
   dof_flags.clear();
-  unsigned int tmp_flag = 100;
+  unsigned int tmp_flag = 100; // An arbitrary number
   dof_flags.insert(dof_flags.end(), dof_handler.n_dofs(), tmp_flag);
 
   if (solver_type == POISSON_BAND_SOLVER)
   {
-
     std::vector<types::global_dof_index> local_dof_indices;
     for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
          cell != dof_handler.end(); ++cell)
     {
+      // For safety reasons, we perform laplace smoothing with an extra layer of padding
+      bool padding = false;
+      // for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
+      // {
+      //   if (!cell->face(face_no)->at_boundary())
+      //   {
+      //     if ( (cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() == FLAG_IN_BAND) ||
+      //          (cell->material_id() == FLAG_OUT && cell->neighbor(face_no)->material_id() == FLAG_OUT_BAND) )
+      //     {
+      //       padding = true;
+      //     }
+      //   }
+      // }
       unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
       local_dof_indices.resize(dofs_per_cell);
       cell->get_dof_indices(local_dof_indices);
       for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
       {
-        if (cell->material_id() == FLAG_IN)
+        if (cell->material_id() == FLAG_IN && !padding)
         {
           dof_flags[local_dof_indices[i]] = FLAG_IN;
         }
-        else if ((cell->material_id() == FLAG_OUT))
+        else if ((cell->material_id() == FLAG_OUT && !padding))
         {
           dof_flags[local_dof_indices[i]] = FLAG_OUT;
         }
       }
+
     }
 
     constraints.clear();
@@ -271,24 +303,38 @@ void NonlinearProblem<dim>::setup_system()
   triangulation.refine_global(refinement_level);
   h = GridTools::minimal_cell_diameter(triangulation);
 
+  if (case_flag == PORE_CASE)
+  {
+    c1 = ((pore_number / 3) - 1) * 0.2;
+    c2 = ((pore_number % 3) - 1) * 0.2;
+    std::cout << "  Pore inf: c1 = " << c1 << ", c2 = " << c2 << std::endl;
+    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
+                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
+                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                      "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
+                      "_pore_" + Utilities::int_to_string(pore_number, 1);
+  }
+  else
+  {
+    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
+                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
+                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                      "_map_choice_" + Utilities::int_to_string(map_choice, 1);
+  }
+
+  std::cout << "  General info: " << vector_filename << std::endl;
   std::cout << "  Mesh info: " << "h " << h << " square length " << 4 / pow(2, refinement_level) << std::endl;
 
-  constraints.clear();
-  constraints.close();
-
   dof_handler.distribute_dofs(fe_collection);
+  solution.reinit(dof_handler.n_dofs());
+  old_solution.reinit(dof_handler.n_dofs());
 
-  if (cycle_no == 0)
+  if (case_flag == FEM_CASE)
   {
-    std::cout << "  First cycle setup" << std::endl;
-    solution.reinit(dof_handler.n_dofs());
-    old_solution.reinit(dof_handler.n_dofs());
-
     initialize_distance_field_circle(dof_handler, solution, Point<dim>(0., 0.), 1);
     // initialize_distance_field_square(dof_handler, solution, Point<dim>(0.0, 0.0), 1.6);
-
     old_solution = solution;
-    output_results(cycle_no);
+    output_vtk(0);
   }
 
   newton_update.reinit(dof_handler.n_dofs());
@@ -311,14 +357,13 @@ void NonlinearProblem<dim>::setup_system()
     bool is_surrogate_cell = true;
     for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
     {
-      // is_surrogate_cell = is_surrogate_cell && old_solution(cell->vertex_dof_index(v, 0, 0)) > 0;
-      is_surrogate_cell = is_surrogate_cell &&  pore_function_value(cell->vertex(v), c1, c2) > 0;
+      if (case_flag == PORE_CASE)
+        is_surrogate_cell = is_surrogate_cell &&  pore_function_value(cell->vertex(v), c1, c2) > 0;
+      else if (case_flag == FEM_CASE)
+        is_surrogate_cell = is_surrogate_cell && old_solution(cell->vertex_dof_index(v, 0, 0)) > 0;
+      else if (case_flag == IMAGE_CASE)
+        assert(0 && "Image case not implemented yet!");
     }
-
-    // if (old_solution(cell->vertex_dof_index(0, 0, 0)) > 0 &&
-    //     old_solution(cell->vertex_dof_index(1, 0, 0)) > 0 &&
-    //     old_solution(cell->vertex_dof_index(2, 0, 0)) > 0 &&
-    //     old_solution(cell->vertex_dof_index(3, 0, 0)) > 0)
     if (is_surrogate_cell)
     {
       cell->set_material_id(FLAG_IN);
@@ -330,7 +375,6 @@ void NonlinearProblem<dim>::setup_system()
     }
   }
   std::cout << "  Number of inner surrogate cells " << counter_in << std::endl;
-
 
   int counter_band = 0;
   unsigned int band_width = pow(2, refinement_level - 4);
@@ -371,8 +415,6 @@ void NonlinearProblem<dim>::setup_system()
   }
 
   std::cout << "  Number of band cells " << counter_band << std::endl;
-
-
 }
 
 
@@ -425,10 +467,20 @@ void NonlinearProblem<dim>::assemble_system_picard()
       std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
       fe_values.get_function_gradients(solution, solution_gradients);
 
+      // std::cout << std::endl << std::endl;
+
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
         double grad_norm = solution_gradients[q].norm();
-        Tensor<1, dim> part_d = solution_gradients[q] / grad_norm;
+        // Tensor<1, dim> part_d =  grad_norm > 1e-3 ? solution_gradients[q] / grad_norm : solution_gradients[q] * (2 - grad_norm);
+        Tensor<1, dim> part_d =  grad_norm > 1 ? solution_gradients[q] / grad_norm : solution_gradients[q] * (2 - grad_norm);
+        // Tensor<1, dim> part_d = solution_gradients[q] / grad_norm;
+
+        // std::cout << std::endl;
+        // std::cout << "material_id " << cell->material_id() << std::endl;
+        // std::cout << "solution_values[q] = " << solution_values[q] << std::endl;
+        // std::cout << "solution_gradients[q] = " << solution_gradients[q] << std::endl;
+        // std::cout << "quad point is " << fe_values.get_quadrature_points()[q] << std::endl;
 
         for (unsigned int i = 0; i < dofs_per_cell; ++i)
         {
@@ -573,9 +625,6 @@ void NonlinearProblem<dim>::assemble_system_poisson()
 
 
 
-
-
-
 template <int dim>
 void NonlinearProblem<dim>::assemble_system_projection()
 {
@@ -645,9 +694,6 @@ void NonlinearProblem<dim>::assemble_system_projection()
 }
 
 
-
-
-
 template <int dim>
 void NonlinearProblem<dim>::solve_picard()
 {
@@ -655,11 +701,18 @@ void NonlinearProblem<dim>::solve_picard()
   A_direct.initialize(system_matrix);
   A_direct.vmult(solution, system_rhs);
   constraints.distribute(solution);
+
+  // SolverControl            solver_control(1000, 1e-12);
+  // SolverCG<Vector<double>> solver(solver_control);
+  // PreconditionSSOR<SparseMatrix<double>> preconditioner;
+  // preconditioner.initialize(system_matrix);
+  // solver.solve(system_matrix, solution, system_rhs, preconditioner);
+  // constraints.distribute(solution);
 }
 
 
 template <int dim>
-void NonlinearProblem<dim>::output_results(unsigned int cycle)
+void NonlinearProblem<dim>::output_vtk(unsigned int cycle)
 {
   std::vector<std::string> solution_names;
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -681,16 +734,50 @@ void NonlinearProblem<dim>::output_results(unsigned int cycle)
 }
 
 
+template <int dim>
+void NonlinearProblem<dim>::output_binary()
+{
+  std::ofstream output_solution_file(vector_filename);
+  solution.block_write(output_solution_file);
+  output_solution_file.close();
+}
 
 
 template <int dim>
-void NonlinearProblem<dim>::run_picard()
+void NonlinearProblem<dim>::error_analysis()
 {
+  // std::cout <<  std::endl <<  std::endl << "############################################################" << std::endl;
+
+  // std::cout << "  Start to set up system" << std::endl;
+  setup_system();
+  // std::cout << "  End of set up system" << std::endl;
+
+  std::ifstream input_solution_file(vector_filename);
+  solution.block_read(input_solution_file);
+  input_solution_file.close();
+
+  L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection);
+  // std::cout << "  L2 error is " << L2_error << std::endl;
+  interface_error = compute_interface_error(dof_handler, solution, c1, c2);
+  // std::cout << "  interface error is " << interface_error << std::endl;
+  SD_error = compute_SD_error(dof_handler, solution, fe_collection, q_collection);
+}
+
+
+template <int dim>
+void NonlinearProblem<dim>::run()
+{
+  std::cout <<  std::endl <<  std::endl << "############################################################" << std::endl;
 
   std::cout << "  Start to set up system" << std::endl;
   setup_system();
-  cache_interface();
   std::cout << "  End of set up system" << std::endl;
+
+  std::cout << "  Start to cache interface" << std::endl;
+  cache_interface();
+  std::cout << "  Number of lagrangian points: "
+            << cache_boundary_values.size()
+            << std::endl;
 
   std::cout << "  Number of active cells: "
             << triangulation.n_active_cells()
@@ -700,28 +787,25 @@ void NonlinearProblem<dim>::run_picard()
             << dof_handler.n_dofs()
             << std::endl;
 
-
-  solver_type = POISSON_BAND_SOLVER;
-  make_constraints();
-  std::cout << "  Start to assemble system FLAG_IN" << std::endl;
-  assemble_system_poisson();
-  std::cout << "  End of assemble system" << std::endl;
-
-  std::cout << "  Start to solve..." << std::endl;
-  solve_picard();
-  std::cout << "  End of solve" << std::endl;
-  output_results(1);
-
-
-  solver_type = DISTANCE_BAND_SOLVER;
-  make_constraints();
-  std::cout << "  Number of lagrangian points: "
-            << cache_boundary_values.size()
-            << std::endl;
+  if (domain_flag == NARROW_BAND)
+  {
+    solver_type = POISSON_BAND_SOLVER;
+    make_constraints();
+    assemble_system_poisson();
+    solve_picard();
+    output_vtk(0);
+    solver_type = DISTANCE_BAND_SOLVER;
+    make_constraints();
+  }
+  else
+  {
+    solver_type = DISTANCE_SOLVER;
+    make_constraints();
+  }
 
   unsigned int picard_step = 0;
   double res = 1e3;
-  while (res > 1e-10 && picard_step < 1000)
+  while (res > 1e-8 && picard_step < 1000)
   {
     std::cout << std::endl << "  Picard step " << picard_step << std::endl;
 
@@ -740,16 +824,16 @@ void NonlinearProblem<dim>::run_picard()
 
     old_solution = solution;
     picard_step++;
-    output_results(picard_step + 1);
+    // output_vtk(picard_step + 1);
+    output_vtk(1);
 
-    double L2_error = compute_error(dof_handler, solution, fe_collection, q_collection, FLAG_IN_BAND, FLAG_OUT_BAND);
-    std::cout << "  L2 error is " << L2_error << std::endl;
+    // double L2_error = compute_l2_error(dof_handler, solution, fe_collection, q_collection);
+    // std::cout << "  L2 error is " << L2_error << std::endl;
   }
 
-  // assemble_system_projection();
-  // solve_picard();
-  // double L2_error = compute_error(dof_handler, solution, fe_collection, q_collection, FLAG_IN_BAND, FLAG_OUT_BAND);
-  // std::cout << "  L2 error for projection is " << L2_error << std::endl;
+  double interface_error = compute_interface_error(dof_handler, solution, c1, c2);
+  std::cout << "  interface error is " << interface_error << std::endl;
+  output_binary();
 }
 
 
