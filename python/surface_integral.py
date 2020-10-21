@@ -234,7 +234,6 @@ def recursive():
         total_refinement_levels.append(refinement_level + 1)
         print("refinement_level {}, length of inds {}".format(refinement_level + 1, len(ids_cut)))
 
-
     np.savez('data/numpy/{}_cut_element_ids.npz'.format(surface), ids=total_ids, refinement_level=total_refinement_levels, allow_pickle=True)
     return total_ids, total_refinement_levels
 
@@ -261,7 +260,7 @@ def main():
 
         point_c, scale = point_c_and_scale(element_id, base)
         q_points_v = quad_points_volume(3)
-        q_points_s, normal_vectors_s, weight_s = quad_points_surface(16)
+        q_points_s, normal_vectors_s, weight_s = quad_points_surface(8)
 
         # id_x, id_y, id_z = to_id_xyz(element_id, base)
         # vertices = get_vertices(id_x, id_y, id_z, h)
