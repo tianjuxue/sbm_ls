@@ -41,6 +41,7 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/tensor.h>
+#include <deal.II/base/mpi.h>
 
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/la_vector.h>
@@ -56,6 +57,10 @@
 #include <deal.II/lac/block_sparse_matrix.h>
 #include <deal.II/lac/solver_richardson.h>
 #include <deal.II/lac/precondition_block.h>
+#include <deal.II/lac/petsc_solver.h>
+#include <deal.II/lac/petsc_vector.h>
+#include <deal.II/lac/petsc_sparse_matrix.h>
+#include <deal.II/lac/petsc_precondition.h>
 
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/grid_out.h>
@@ -107,13 +112,19 @@
 
 int main ()
 {
-  bool debug_mode = false;
-  bool run_mode = false;
+ 
+  PETScWrappers::MPI::Vector solution;
+  exit(0);
+
+  bool debug_mode = true;
+  bool run_mode = true;
   if (debug_mode)
   {
     if (run_mode)
     {
-      NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, 6, MAP_NEWTON, 4);;
+      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, 6, MAP_NEWTON, 4);
+      // NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 5, MAP_NEWTON);
+      NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 6, MAP_NEWTON);
       problem.run();
     }
     else
@@ -127,15 +138,15 @@ int main ()
     if (run_mode)
     {
       int total_pore_number = 9;
-      int coarse_refinement_level = 8;
+      int coarse_refinement_level = 5;
       int fine_refinement_level = 8;
       for (int i = 0; i < total_pore_number; ++i)
       {
         for (int j = coarse_refinement_level; j < fine_refinement_level + 1; ++j)
         {
-          NonlinearProblem<2> problem_newton(PORE_CASE, NARROW_BAND, j, MAP_NEWTON, i);
+          NonlinearProblem<2> problem_newton(PORE_CASE, GLOBAL, j, MAP_NEWTON, i);
           problem_newton.run();
-          NonlinearProblem<2> problem_binary_search(PORE_CASE, NARROW_BAND, j, MAP_BINARY_SEARCH, i);
+          NonlinearProblem<2> problem_binary_search(PORE_CASE, GLOBAL, j, MAP_BINARY_SEARCH, i);
           problem_binary_search.run();
         }
       }

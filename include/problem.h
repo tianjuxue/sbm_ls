@@ -1,10 +1,6 @@
 #ifndef PROBLEM
 #define PROBLEM
 
-// #include "common_definitions.h"
-// #include "general_utils.h"
-// #include "error_estimate.h"
-
 
 template <int dim>
 class NonlinearProblem
@@ -14,11 +10,12 @@ public:
                    unsigned int domain_flag_ = NARROW_BAND,
                    unsigned int refinement_level_ = 8,
                    unsigned int map_choice_ = MAP_NEWTON,
-                   int pore_number_ = 2);
+                   int pore_number_ = CIRCLE_PORE);
   ~NonlinearProblem();
   void run();
   void error_analysis();
-  void output_vtk(unsigned int cycle);
+  void output_cycle_vtk(unsigned int cycle);
+  void output_vtk(std::string &filename);
   void output_binary();
   double h;
   double L2_error;
@@ -157,6 +154,13 @@ void NonlinearProblem<dim>::cache_interface()
             else
               sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, c1, c2, h);
           }
+          else if (case_flag == TORUS_CASE)
+          {
+            if (map_choice == MAP_NEWTON)
+              sbm_map_newton(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points);
+            else
+              sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, h);
+          }
           else if (case_flag == FEM_CASE)
           {
             if (map_choice == MAP_NEWTON)
@@ -206,7 +210,7 @@ void NonlinearProblem<dim>::make_constraints()
     for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
          cell != dof_handler.end(); ++cell)
     {
-      // For safety reasons, we perform laplace smoothing with an extra layer of padding
+      // For safety reasons, we may add an extra layer of padding
       bool padding = false;
       // for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
       // {
@@ -329,13 +333,15 @@ void NonlinearProblem<dim>::setup_system()
   solution.reinit(dof_handler.n_dofs());
   old_solution.reinit(dof_handler.n_dofs());
 
-  if (case_flag == FEM_CASE)
-  {
+  if (case_flag == PORE_CASE)
+    initialize_pore(dof_handler, solution, c1, c2);
+  else if (case_flag == TORUS_CASE)
+    initialize_torus(dof_handler, solution);
+  else if (case_flag == FEM_CASE)
     initialize_distance_field_circle(dof_handler, solution, Point<dim>(0., 0.), 1);
-    // initialize_distance_field_square(dof_handler, solution, Point<dim>(0.0, 0.0), 1.6);
-    old_solution = solution;
-    output_vtk(0);
-  }
+
+  old_solution = solution;
+  output_cycle_vtk(0);
 
   newton_update.reinit(dof_handler.n_dofs());
   system_rhs.reinit(dof_handler.n_dofs());
@@ -359,6 +365,8 @@ void NonlinearProblem<dim>::setup_system()
     {
       if (case_flag == PORE_CASE)
         is_surrogate_cell = is_surrogate_cell &&  pore_function_value(cell->vertex(v), c1, c2) > 0;
+      else if (case_flag == TORUS_CASE)
+        is_surrogate_cell = is_surrogate_cell &&  torus_function_value(cell->vertex(v)) > 0;
       else if (case_flag == FEM_CASE)
         is_surrogate_cell = is_surrogate_cell && old_solution(cell->vertex_dof_index(v, 0, 0)) > 0;
       else if (case_flag == IMAGE_CASE)
@@ -377,7 +385,14 @@ void NonlinearProblem<dim>::setup_system()
   std::cout << "  Number of inner surrogate cells " << counter_in << std::endl;
 
   int counter_band = 0;
-  unsigned int band_width = pow(2, refinement_level - 4);
+  int offset_band_width = 4;
+  unsigned int band_width = pow(2, refinement_level - offset_band_width);
+
+  if (case_flag == TORUS_CASE)
+  {
+    band_width = 2;
+  }
+
   for (unsigned int i = 0; i < band_width; ++i)
   {
     for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
@@ -712,7 +727,7 @@ void NonlinearProblem<dim>::solve_picard()
 
 
 template <int dim>
-void NonlinearProblem<dim>::output_vtk(unsigned int cycle)
+void NonlinearProblem<dim>::output_vtk(std::string &filename)
 {
   std::vector<std::string> solution_names;
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -728,9 +743,16 @@ void NonlinearProblem<dim>::output_vtk(unsigned int cycle)
                            data_component_interpretation);
   data_out.build_patches();
 
-  std::string filename = "solution-" + Utilities::int_to_string(cycle, 5) + ".vtk";
-  std::ofstream output(filename.c_str());
+  std::ofstream output(filename);
   data_out.write_vtk(output);
+}
+
+
+template <int dim>
+void NonlinearProblem<dim>::output_cycle_vtk(unsigned int cycle)
+{
+  std::string filename = "solution-" + Utilities::int_to_string(cycle, 5) + ".vtk";
+  output_vtk(filename);
 }
 
 
@@ -761,12 +783,20 @@ void NonlinearProblem<dim>::error_analysis()
   interface_error = compute_interface_error(dof_handler, solution, c1, c2);
   // std::cout << "  interface error is " << interface_error << std::endl;
   SD_error = compute_SD_error(dof_handler, solution, fe_collection, q_collection);
+
+  std::string vtk_filename = "../data/vtk/case_" + Utilities::int_to_string(case_flag, 1) +
+                             "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
+                             "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                             "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
+                             "_pore_" + Utilities::int_to_string(pore_number, 1) + ".vtk";
+  output_vtk(vtk_filename);
 }
 
 
 template <int dim>
 void NonlinearProblem<dim>::run()
 {
+
   std::cout <<  std::endl <<  std::endl << "############################################################" << std::endl;
 
   std::cout << "  Start to set up system" << std::endl;
@@ -793,7 +823,7 @@ void NonlinearProblem<dim>::run()
     make_constraints();
     assemble_system_poisson();
     solve_picard();
-    output_vtk(0);
+    output_cycle_vtk(0);
     solver_type = DISTANCE_BAND_SOLVER;
     make_constraints();
   }
@@ -824,8 +854,8 @@ void NonlinearProblem<dim>::run()
 
     old_solution = solution;
     picard_step++;
-    // output_vtk(picard_step + 1);
-    output_vtk(1);
+    // output_cycle_vtk(picard_step);
+    output_cycle_vtk(1);
 
     // double L2_error = compute_l2_error(dof_handler, solution, fe_collection, q_collection);
     // std::cout << "  L2 error is " << L2_error << std::endl;

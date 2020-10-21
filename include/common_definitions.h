@@ -3,7 +3,7 @@
 
 enum field
 {
-  PORE_CASE, FEM_CASE, IMAGE_CASE
+  PORE_CASE, TORUS_CASE, FEM_CASE, IMAGE_CASE
 };
 
 enum band

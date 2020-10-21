@@ -21,8 +21,6 @@ double BoundaryValues<dim>::value(const Point<dim> & p,
 }
 
 
-// Mathematica code
-// Grad[x^2 + y^2 - (1 + c1 * Cos[4*ArcTan[y/x]] +  c2 * Cos[8*ArcTan[y/x]]), {x, y}]
 template <int dim>
 double pore_function_value(Point<dim> &point, double c1, double c2)
 {
@@ -35,6 +33,8 @@ double pore_function_value(Point<dim> &point, double c1, double c2)
 }
 
 
+// Mathematica code
+// Grad[x^2 + y^2 - (1 + c1 * Cos[4*ArcTan[y/x]] +  c2 * Cos[8*ArcTan[y/x]]), {x, y}]
 template <int dim>
 Tensor<1, dim> pore_function_gradient(Point<dim> &point, double c1, double c2)
 {
@@ -47,6 +47,34 @@ Tensor<1, dim> pore_function_gradient(Point<dim> &point, double c1, double c2)
   gradient[1] = 4 * c1 * x * sin(4 * theta) / r_square + 8 * c2 * x * sin(8 * theta) / r_square  + 2 * y;
   return -gradient;
 }
+
+
+template <int dim>
+double torus_function_value(Point<dim> &point)
+{
+  double x = point[0];
+  double y = point[1];
+  double z = point[2];
+  double value  = 2 * y * (pow(y, 2) - 3 * pow(x, 2)) * (1 - pow(z, 2)) + pow((pow(x, 2) + pow(y, 2)), 2) - (9 * pow(z, 2) - 1) * (1 - pow(z, 2));
+  return -value;
+}
+
+
+// Mathematica code
+//  Grad[2*y*(y^2 - 3*x^2)*(1 - z^2) + (x^2 + y^2)^2 - (9*z^2 - 1)*(1 - z^2)), {x, y, z}]
+template <int dim>
+Tensor<1, dim> torus_function_gradient(Point<dim> &point)
+{
+  double x = point[0];
+  double y = point[1];
+  double z = point[2];
+  Tensor<1, dim> gradient;
+  gradient[0] = 4 * x * (pow(x, 2) + pow(y, 2)) - 12 * x * y * (1 -  pow(z, 2));
+  gradient[1] = 2 * (1 - pow(z, 2)) * (pow(y, 2) - 3 * pow(x, 2)) + 4 * y * (pow(x, 2) + pow(y, 2)) + 4 * pow(y, 2) * (1 - pow(z, 2));
+  gradient[2] = -4 * y * z * (pow(y, 2) - 3 * pow(x, 2)) - 18 * (1 - pow(z, 2)) * z + 2 * (9 * pow(z, 2) - 1) * z;
+  return -gradient;
+}
+
 
 
 template <int dim>
@@ -146,8 +174,6 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
 }
 
 
-/* Construct map and return distance vector.
-   Based on https://doi.org/10.1137/S106482750037617X */
 template <int dim>
 void sbm_map_newton(std::vector<Point<dim>> &target_points,
                     std::vector<Tensor<1, dim>> &normal_vectors,
@@ -204,17 +230,75 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
         res = abs(phi);
         step++;
       }
-      // std::cout << "  End of bad point converge at step " << step << " mapped point " << target_point << " phi value " << phi << std::endl;
     }
 
     target_points[i] = target_point;
     normal_vectors[i] = -grad_phi / grad_phi.norm();
     distance_vectors[i] = target_point - points[i];
-    // std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-    //           << "  phi value "  << pore_function_value(target_point, c1, c2)
-    //           << "  mapped points " << target_point << std::endl;
   }
-  // std::cout << std::endl;
+}
+
+
+template <int dim>
+void sbm_map_newton(std::vector<Point<dim>> &target_points,
+                    std::vector<Tensor<1, dim>> &normal_vectors,
+                    std::vector<Tensor<1, dim>> &distance_vectors,
+                    const std::vector<Point<dim>> &points,
+                    int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    Point<dim> target_point;
+    target_point = points[i];
+    double phi;
+    Tensor<1, dim> grad_phi;
+    double tol = 1e-5;
+    double res = 1.;
+    double relax_param = 1.;
+    Tensor<1, dim> delta1, delta2;
+    int step = 0;
+    int max_step = 100;
+
+    phi = torus_function_value(target_point);
+    grad_phi = torus_function_gradient(target_point);
+
+    while (res > tol && step < max_step)
+    {
+      delta1 = -phi * grad_phi / (grad_phi * grad_phi);
+      delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
+      target_point = target_point + relax_param * (delta1 + delta2);
+
+      // TODO: Bound the point, hard code, change
+      target_point[0] = target_point[0] > 2 ? 0. : target_point[0];
+      target_point[0] = target_point[0] < -2 ? 0. : target_point[0];
+      target_point[1] = target_point[1] > 2 ? 0. : target_point[1];
+      target_point[1] = target_point[1] < -2 ? 0. : target_point[1];
+
+      phi = torus_function_value(target_point);
+      grad_phi = torus_function_gradient(target_point);
+      res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
+      step++;
+    }
+
+    if (res > tol)
+    {
+      tol = 1e-5;
+      relax_param = 0.1;
+      while (abs(phi) > tol)
+      {
+        delta1 = -phi * grad_phi / (grad_phi * grad_phi);
+        target_point = target_point + relax_param * (delta1);
+        phi = torus_function_value(target_point);
+        grad_phi = torus_function_gradient(target_point);
+        res = abs(phi);
+        step++;
+      }
+    }
+
+    target_points[i] = target_point;
+    normal_vectors[i] = -grad_phi / grad_phi.norm();
+    distance_vectors[i] = target_point - points[i];
+  }
 }
 
 
@@ -313,15 +397,51 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
 
     target_points[i] = middle_point;
     distance_vectors[i] = target_points[i] - points[i];
-
-    // std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-    //           << "  phi value "  << pore_function_value(middle_point, c1, c2)
-    //           << "  mapped points " << middle_point << std::endl;
   }
-
-  // std::cout << std::endl;
 }
 
+
+template <int dim>
+void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
+                           std::vector<Tensor<1, dim>> &normal_vectors,
+                           std::vector<Tensor<1, dim>> &distance_vectors,
+                           const std::vector<Point<dim>> &points,
+                           int length,
+                           double h)
+{
+
+  for (int i = 0; i < length; ++i)
+  {
+    Point<dim> begin_point = points[i];
+    Tensor<1, dim> normal_vector = normal_vectors[i];
+    Point<dim> end_point = begin_point;
+    double phi;
+    do
+    {
+      end_point += h * normal_vector;
+      phi = torus_function_value(end_point);
+    }
+    while (phi > 0);
+
+    double tol = 1e-6;
+    double res;
+    Point<dim> middle_point = begin_point;
+
+    do
+    {
+      res = torus_function_value(middle_point);
+      if (res > 0)
+        begin_point = middle_point;
+      else
+        end_point = middle_point;
+      middle_point = (begin_point + end_point) / 2;
+    }
+    while (abs(res) > tol);
+
+    target_points[i] = middle_point;
+    distance_vectors[i] = target_points[i] - points[i];
+  }
+}
 
 // template<int dim>
 void vec2num_values(std::vector<Vector<double> > &vec,
@@ -360,6 +480,29 @@ void set_support_points(hp::DoFHandler<dim> &dof_handler, std::vector<Point<dim>
   DoFTools::map_dofs_to_support_points(mapping_collection, dof_handler, support_points);
 }
 
+
+template <int dim>
+void initialize_pore(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, double c1, double c2)
+{
+  std::vector<Point<dim>> support_points(dof_handler.n_dofs());
+  set_support_points(dof_handler, support_points);
+  for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
+  {
+    solution(i) = pore_function_value(support_points[i], c1, c2);
+  }
+}
+
+
+template <int dim>
+void initialize_torus(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution)
+{
+  std::vector<Point<dim>> support_points(dof_handler.n_dofs());
+  set_support_points(dof_handler, support_points);
+  for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
+  {
+    solution(i) = torus_function_value(support_points[i]);
+  }
+}
 
 
 template <int dim>
