@@ -32,7 +32,16 @@ private:
   void assemble_system_projection();
   void solve_picard();
 
-  Triangulation<dim> triangulation;
+  MPI_Comm mpi_communicator;
+  const unsigned int n_mpi_processes;
+  const unsigned int this_mpi_process;
+  ConditionalOStream pcout;
+
+  IndexSet locally_owned_dofs;
+  IndexSet locally_relevant_dofs;
+
+  parallel::shared::Triangulation<dim> triangulation;
+
   hp::DoFHandler<dim> dof_handler;
 
   hp::FECollection<dim>   fe_collection;
@@ -40,11 +49,10 @@ private:
   hp::QCollection < dim - 1 >  q_collection_face;
 
   AffineConstraints<double> constraints;
-  SparsityPattern           sparsity_pattern;
-  SparseMatrix<double>      system_matrix;
-
-  Vector<double>            newton_update;
-  Vector<double>            system_rhs;
+  // SparsityPattern           sparsity_pattern;
+  PETScWrappers::MPI::SparseMatrix     system_matrix;
+  PETScWrappers::MPI::Vector  distributed_solution;
+  PETScWrappers::MPI::Vector  system_rhs;
 
   Vector<double> solution;
   Vector<double> old_solution;
@@ -65,6 +73,7 @@ private:
 
   std::string vector_filename;
 
+
 };
 
 
@@ -75,6 +84,11 @@ NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
                                         unsigned int map_choice_,
                                         int pore_number_)
   :
+  mpi_communicator(MPI_COMM_WORLD),
+  n_mpi_processes(Utilities::MPI::n_mpi_processes(mpi_communicator)),
+  this_mpi_process(Utilities::MPI::this_mpi_process(mpi_communicator)),
+  pcout(std::cout, this_mpi_process == 0),
+  triangulation(MPI_COMM_WORLD),
   dof_handler(triangulation),
   alpha(1e1), // Magic number, may affect numerical instability
   solver_type(0),
@@ -246,12 +260,12 @@ void NonlinearProblem<dim>::make_constraints()
       if (dof_flags[i] == FLAG_IN)
       {
         constraints.add_line(i);
-        constraints.set_inhomogeneity(i, 1.);
+        constraints.set_inhomogeneity(i, -1.);
       }
       else if (dof_flags[i] == FLAG_OUT)
       {
         constraints.add_line(i);
-        constraints.set_inhomogeneity(i, -1);
+        constraints.set_inhomogeneity(i, 1.);
       }
     }
     constraints.close();
@@ -311,7 +325,7 @@ void NonlinearProblem<dim>::setup_system()
   {
     c1 = ((pore_number / 3) - 1) * 0.2;
     c2 = ((pore_number % 3) - 1) * 0.2;
-    std::cout << "  Pore inf: c1 = " << c1 << ", c2 = " << c2 << std::endl;
+    pcout << "  Pore inf: c1 = " << c1 << ", c2 = " << c2 << std::endl;
     vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
                       "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
                       "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
@@ -326,10 +340,27 @@ void NonlinearProblem<dim>::setup_system()
                       "_map_choice_" + Utilities::int_to_string(map_choice, 1);
   }
 
-  std::cout << "  General info: " << vector_filename << std::endl;
-  std::cout << "  Mesh info: " << "h " << h << " square length " << 4 / pow(2, refinement_level) << std::endl;
+  pcout << "  General info: " << vector_filename << std::endl;
+  pcout << "  Mesh info: " << "h " << h << " square length " << 4 / pow(2, refinement_level) << std::endl;
 
   dof_handler.distribute_dofs(fe_collection);
+  locally_owned_dofs = dof_handler.locally_owned_dofs();
+  DoFTools::extract_locally_relevant_dofs(dof_handler, locally_relevant_dofs);
+
+  DynamicSparsityPattern dsp(locally_relevant_dofs);
+
+  DoFTools::make_sparsity_pattern(dof_handler,
+                                  dsp,
+                                  constraints,
+                                  /*keep_constrained_dofs = */ false);
+
+  SparsityTools::distribute_sparsity_pattern(dsp, locally_owned_dofs, mpi_communicator, locally_relevant_dofs);
+
+
+  system_matrix.reinit(locally_owned_dofs, locally_owned_dofs, dsp, mpi_communicator);
+  system_rhs.reinit(locally_owned_dofs, mpi_communicator);
+  distributed_solution.reinit(locally_owned_dofs, mpi_communicator);
+
   solution.reinit(dof_handler.n_dofs());
   old_solution.reinit(dof_handler.n_dofs());
 
@@ -343,18 +374,6 @@ void NonlinearProblem<dim>::setup_system()
   old_solution = solution;
   output_cycle_vtk(0);
 
-  newton_update.reinit(dof_handler.n_dofs());
-  system_rhs.reinit(dof_handler.n_dofs());
-
-
-  DynamicSparsityPattern dsp(dof_handler.n_dofs());
-  DoFTools::make_sparsity_pattern(dof_handler,
-                                  dsp,
-                                  constraints,
-                                  /*keep_constrained_dofs = */ false);
-  sparsity_pattern.copy_from(dsp);
-  system_matrix.reinit(sparsity_pattern);
-
 
   int counter_in = 0;
   for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
@@ -364,11 +383,11 @@ void NonlinearProblem<dim>::setup_system()
     for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
     {
       if (case_flag == PORE_CASE)
-        is_surrogate_cell = is_surrogate_cell &&  pore_function_value(cell->vertex(v), c1, c2) > 0;
+        is_surrogate_cell = is_surrogate_cell &&  pore_function_value(cell->vertex(v), c1, c2) < 0;
       else if (case_flag == TORUS_CASE)
-        is_surrogate_cell = is_surrogate_cell &&  torus_function_value(cell->vertex(v)) > 0;
+        is_surrogate_cell = is_surrogate_cell &&  torus_function_value(cell->vertex(v)) < 0;
       else if (case_flag == FEM_CASE)
-        is_surrogate_cell = is_surrogate_cell && old_solution(cell->vertex_dof_index(v, 0, 0)) > 0;
+        is_surrogate_cell = is_surrogate_cell && old_solution(cell->vertex_dof_index(v, 0, 0)) < 0;
       else if (case_flag == IMAGE_CASE)
         assert(0 && "Image case not implemented yet!");
     }
@@ -382,7 +401,7 @@ void NonlinearProblem<dim>::setup_system()
       cell->set_material_id(FLAG_OUT);
     }
   }
-  std::cout << "  Number of inner surrogate cells " << counter_in << std::endl;
+  pcout << "  Number of inner surrogate cells " << counter_in << std::endl;
 
   int counter_band = 0;
   int offset_band_width = 4;
@@ -429,7 +448,7 @@ void NonlinearProblem<dim>::setup_system()
     }
   }
 
-  std::cout << "  Number of band cells " << counter_band << std::endl;
+  pcout << "  Number of band cells " << counter_band << std::endl;
 }
 
 
@@ -482,7 +501,7 @@ void NonlinearProblem<dim>::assemble_system_picard()
       std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
       fe_values.get_function_gradients(solution, solution_gradients);
 
-      // std::cout << std::endl << std::endl;
+      // pcout << std::endl << std::endl;
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
@@ -491,11 +510,11 @@ void NonlinearProblem<dim>::assemble_system_picard()
         Tensor<1, dim> part_d =  grad_norm > 1 ? solution_gradients[q] / grad_norm : solution_gradients[q] * (2 - grad_norm);
         // Tensor<1, dim> part_d = solution_gradients[q] / grad_norm;
 
-        // std::cout << std::endl;
-        // std::cout << "material_id " << cell->material_id() << std::endl;
-        // std::cout << "solution_values[q] = " << solution_values[q] << std::endl;
-        // std::cout << "solution_gradients[q] = " << solution_gradients[q] << std::endl;
-        // std::cout << "quad point is " << fe_values.get_quadrature_points()[q] << std::endl;
+        // pcout << std::endl;
+        // pcout << "material_id " << cell->material_id() << std::endl;
+        // pcout << "solution_values[q] = " << solution_values[q] << std::endl;
+        // pcout << "solution_gradients[q] = " << solution_gradients[q] << std::endl;
+        // pcout << "quad point is " << fe_values.get_quadrature_points()[q] << std::endl;
 
         for (unsigned int i = 0; i < dofs_per_cell; ++i)
         {
@@ -565,6 +584,8 @@ void NonlinearProblem<dim>::assemble_system_picard()
                                            system_matrix,
                                            system_rhs);
   }
+  system_matrix.compress(VectorOperation::add);
+  system_rhs.compress(VectorOperation::add);
 }
 
 
@@ -636,6 +657,8 @@ void NonlinearProblem<dim>::assemble_system_poisson()
                                            system_matrix,
                                            system_rhs);
   }
+  system_matrix.compress(VectorOperation::add);
+  system_rhs.compress(VectorOperation::add);
 }
 
 
@@ -706,16 +729,18 @@ void NonlinearProblem<dim>::assemble_system_projection()
                                            system_matrix,
                                            system_rhs);
   }
+  system_matrix.compress(VectorOperation::add);
+  system_rhs.compress(VectorOperation::add);
 }
 
 
 template <int dim>
 void NonlinearProblem<dim>::solve_picard()
 {
-  SparseDirectUMFPACK  A_direct;
-  A_direct.initialize(system_matrix);
-  A_direct.vmult(solution, system_rhs);
-  constraints.distribute(solution);
+  // SparseDirectUMFPACK  A_direct;
+  // A_direct.initialize(system_matrix);
+  // A_direct.vmult(solution, system_rhs);
+  // constraints.distribute(solution);
 
   // SolverControl            solver_control(1000, 1e-12);
   // SolverCG<Vector<double>> solver(solver_control);
@@ -723,28 +748,38 @@ void NonlinearProblem<dim>::solve_picard()
   // preconditioner.initialize(system_matrix);
   // solver.solve(system_matrix, solution, system_rhs, preconditioner);
   // constraints.distribute(solution);
+
+  SolverControl solver_control(distributed_solution.size(), 1e-8 * system_rhs.l2_norm());
+  PETScWrappers::SolverCG cg(solver_control, mpi_communicator);
+  PETScWrappers::PreconditionBlockJacobi preconditioner(system_matrix);
+  cg.solve(system_matrix, distributed_solution, system_rhs, preconditioner);
+  solution = distributed_solution;
+  constraints.distribute(solution);
 }
 
 
 template <int dim>
 void NonlinearProblem<dim>::output_vtk(std::string &filename)
 {
-  std::vector<std::string> solution_names;
-  std::vector<DataComponentInterpretation::DataComponentInterpretation>
-  data_component_interpretation;
+  if (this_mpi_process == 0)
+  {
+    std::vector<std::string> solution_names;
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    data_component_interpretation;
 
-  solution_names.push_back("u");
-  data_component_interpretation.push_back(DataComponentInterpretation::component_is_scalar);
+    solution_names.push_back("u");
+    data_component_interpretation.push_back(DataComponentInterpretation::component_is_scalar);
 
-  DataOut<dim, hp::DoFHandler<dim>> data_out;
-  data_out.attach_dof_handler(dof_handler);
-  data_out.add_data_vector(solution, solution_names,
-                           DataOut<dim, hp::DoFHandler<dim>>::type_dof_data,
-                           data_component_interpretation);
-  data_out.build_patches();
+    DataOut<dim, hp::DoFHandler<dim>> data_out;
+    data_out.attach_dof_handler(dof_handler);
+    data_out.add_data_vector(solution, solution_names,
+                             DataOut<dim, hp::DoFHandler<dim>>::type_dof_data,
+                             data_component_interpretation);
+    data_out.build_patches();
 
-  std::ofstream output(filename);
-  data_out.write_vtk(output);
+    std::ofstream output(filename);
+    data_out.write_vtk(output);
+  }
 }
 
 
@@ -759,37 +794,44 @@ void NonlinearProblem<dim>::output_cycle_vtk(unsigned int cycle)
 template <int dim>
 void NonlinearProblem<dim>::output_binary()
 {
-  std::ofstream output_solution_file(vector_filename);
-  solution.block_write(output_solution_file);
-  output_solution_file.close();
+  if (this_mpi_process == 0)
+  {
+    std::ofstream output_solution_file(vector_filename);
+    solution.block_write(output_solution_file);
+    output_solution_file.close();
+  }
 }
 
 
 template <int dim>
 void NonlinearProblem<dim>::error_analysis()
 {
-  // std::cout <<  std::endl <<  std::endl << "############################################################" << std::endl;
+  if (this_mpi_process == 0)
+  {
+    // pcout <<  std::endl <<  std::endl << "############################################################" << std::endl;
 
-  // std::cout << "  Start to set up system" << std::endl;
-  setup_system();
-  // std::cout << "  End of set up system" << std::endl;
+    // pcout << "  Start to set up system" << std::endl;
+    setup_system();
+    // pcout << "  End of set up system" << std::endl;
 
-  std::ifstream input_solution_file(vector_filename);
-  solution.block_read(input_solution_file);
-  input_solution_file.close();
+    std::ifstream input_solution_file(vector_filename);
+    solution.block_read(input_solution_file);
+    input_solution_file.close();
 
-  L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection);
-  // std::cout << "  L2 error is " << L2_error << std::endl;
-  interface_error = compute_interface_error(dof_handler, solution, c1, c2);
-  // std::cout << "  interface error is " << interface_error << std::endl;
-  SD_error = compute_SD_error(dof_handler, solution, fe_collection, q_collection);
+    L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection);
+    // pcout << "  L2 error is " << L2_error << std::endl;
+    interface_error = compute_interface_error(dof_handler, solution, c1, c2);
+    // pcout << "  interface error is " << interface_error << std::endl;
+    SD_error = compute_SD_error(dof_handler, solution, fe_collection, q_collection);
 
-  std::string vtk_filename = "../data/vtk/case_" + Utilities::int_to_string(case_flag, 1) +
-                             "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
-                             "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
-                             "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
-                             "_pore_" + Utilities::int_to_string(pore_number, 1) + ".vtk";
-  output_vtk(vtk_filename);
+    std::string vtk_filename = "../data/vtk/case_" + Utilities::int_to_string(case_flag, 1) +
+                               "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
+                               "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                               "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
+                               "_pore_" + Utilities::int_to_string(pore_number, 1) + ".vtk";
+    output_vtk(vtk_filename);
+
+  }
 }
 
 
@@ -797,25 +839,25 @@ template <int dim>
 void NonlinearProblem<dim>::run()
 {
 
-  std::cout <<  std::endl <<  std::endl << "############################################################" << std::endl;
+  pcout <<  std::endl <<  std::endl << "############################################################" << std::endl;
 
-  std::cout << "  Start to set up system" << std::endl;
+  pcout << "  Start to set up system" << std::endl;
   setup_system();
-  std::cout << "  End of set up system" << std::endl;
+  pcout << "  End of set up system" << std::endl;
 
-  std::cout << "  Start to cache interface" << std::endl;
+  pcout << "  Start to cache interface" << std::endl;
   cache_interface();
-  std::cout << "  Number of lagrangian points: "
-            << cache_boundary_values.size()
-            << std::endl;
+  pcout << "  Number of lagrangian points: "
+        << cache_boundary_values.size()
+        << std::endl;
 
-  std::cout << "  Number of active cells: "
-            << triangulation.n_active_cells()
-            << std::endl;
+  pcout << "  Number of active cells: "
+        << triangulation.n_active_cells()
+        << std::endl;
 
-  std::cout << "  Number of degrees of freedom: "
-            << dof_handler.n_dofs()
-            << std::endl;
+  pcout << "  Number of degrees of freedom: "
+        << dof_handler.n_dofs()
+        << std::endl;
 
   if (domain_flag == NARROW_BAND)
   {
@@ -837,20 +879,20 @@ void NonlinearProblem<dim>::run()
   double res = 1e3;
   while (res > 1e-8 && picard_step < 1000)
   {
-    std::cout << std::endl << "  Picard step " << picard_step << std::endl;
+    pcout << std::endl << "  Picard step " << picard_step << std::endl;
 
-    std::cout << "  Start to assemble system" << std::endl;
+    pcout << "  Start to assemble system" << std::endl;
     assemble_system_picard();
-    std::cout << "  End of assemble system" << std::endl;
+    pcout << "  End of assemble system" << std::endl;
 
-    std::cout << "  Start to solve..." << std::endl;
+    pcout << "  Start to solve..." << std::endl;
     solve_picard();
-    std::cout << "  End of solve" << std::endl;
+    pcout << "  End of solve" << std::endl;
 
     Vector<double>  delta_solution = solution;
     delta_solution.sadd(-1, old_solution);
     res = delta_solution.l2_norm();
-    std::cout << "  Delta phi norm: " << res  << std::endl;
+    pcout << "  Delta phi norm: " << res  << std::endl;
 
     old_solution = solution;
     picard_step++;
@@ -858,11 +900,11 @@ void NonlinearProblem<dim>::run()
     output_cycle_vtk(1);
 
     // double L2_error = compute_l2_error(dof_handler, solution, fe_collection, q_collection);
-    // std::cout << "  L2 error is " << L2_error << std::endl;
+    // pcout << "  L2 error is " << L2_error << std::endl;
   }
 
   double interface_error = compute_interface_error(dof_handler, solution, c1, c2);
-  std::cout << "  interface error is " << interface_error << std::endl;
+  pcout << "  interface error is " << interface_error << std::endl;
   output_binary();
 }
 
