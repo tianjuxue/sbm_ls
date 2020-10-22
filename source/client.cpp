@@ -42,8 +42,6 @@
 #include <deal.II/base/function.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/base/mpi.h>
-#include <deal.II/base/multithread_info.h>
-#include <deal.II/base/conditional_ostream.h>
 
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/la_vector.h>
@@ -63,7 +61,6 @@
 #include <deal.II/lac/petsc_vector.h>
 #include <deal.II/lac/petsc_sparse_matrix.h>
 #include <deal.II/lac/petsc_precondition.h>
-#include <deal.II/lac/sparsity_tools.h>
 
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/grid_out.h>
@@ -101,8 +98,6 @@
 #include <deal.II/hp/fe_values.h>
 #include <deal.II/hp/q_collection.h>
 
-#include <deal.II/distributed/shared_tria.h>
-
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -115,10 +110,11 @@
 #include "problem.h"
 
 
-int main (int argc, char **argv)
+int main ()
 {
-
-  Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
+ 
+  PETScWrappers::MPI::Vector solution;
+  exit(0);
 
   bool debug_mode = true;
   bool run_mode = true;
@@ -126,9 +122,9 @@ int main (int argc, char **argv)
   {
     if (run_mode)
     {
-      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, 7, MAP_BINARY_SEARCH, 4);
-      NonlinearProblem<3> problem(TORUS_CASE, NARROW_BAND, 8, MAP_NEWTON);
-      // NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 6, MAP_NEWTON);
+      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, 6, MAP_NEWTON, 4);
+      // NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 5, MAP_NEWTON);
+      NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 6, MAP_NEWTON);
       problem.run();
     }
     else

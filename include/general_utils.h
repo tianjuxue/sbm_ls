@@ -17,7 +17,7 @@ template <int dim>
 double BoundaryValues<dim>::value(const Point<dim> & p,
                                   const unsigned int component) const
 {
-  return 1.;
+  return -1;
 }
 
 
@@ -29,7 +29,7 @@ double pore_function_value(Point<dim> &point, double c1, double c2)
   double theta = atan2(y, x);
   double r_square = pow(x, 2) + pow(y, 2);
   double value =  r_square - (1 + c1 * cos(4 * theta) + c2 * cos(8 * theta));
-  return value;
+  return -value;
 }
 
 
@@ -45,7 +45,7 @@ Tensor<1, dim> pore_function_gradient(Point<dim> &point, double c1, double c2)
   Tensor<1, dim> gradient;
   gradient[0] = -4 * c1 * y * sin(4 * theta) / r_square - 8 * c2 * y * sin(8 * theta) / r_square + 2 * x;
   gradient[1] = 4 * c1 * x * sin(4 * theta) / r_square + 8 * c2 * x * sin(8 * theta) / r_square  + 2 * y;
-  return gradient;
+  return -gradient;
 }
 
 
@@ -56,7 +56,7 @@ double torus_function_value(Point<dim> &point)
   double y = point[1];
   double z = point[2];
   double value  = 2 * y * (pow(y, 2) - 3 * pow(x, 2)) * (1 - pow(z, 2)) + pow((pow(x, 2) + pow(y, 2)), 2) - (9 * pow(z, 2) - 1) * (1 - pow(z, 2));
-  return value;
+  return -value;
 }
 
 
@@ -72,7 +72,7 @@ Tensor<1, dim> torus_function_gradient(Point<dim> &point)
   gradient[0] = 4 * x * (pow(x, 2) + pow(y, 2)) - 12 * x * y * (1 -  pow(z, 2));
   gradient[1] = 2 * (1 - pow(z, 2)) * (pow(y, 2) - 3 * pow(x, 2)) + 4 * y * (pow(x, 2) + pow(y, 2)) + 4 * pow(y, 2) * (1 - pow(z, 2));
   gradient[2] = -4 * y * z * (pow(y, 2) - 3 * pow(x, 2)) - 18 * (1 - pow(z, 2)) * z + 2 * (9 * pow(z, 2) - 1) * z;
-  return gradient;
+  return -gradient;
 }
 
 
@@ -326,7 +326,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
       end_point += h * normal_vector;
       phi = fe_field_function.value(end_point);
     }
-    while (phi < 0);
+    while (phi > 0);
 
     double tol = 1e-6;
     double res;
@@ -335,7 +335,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     do
     {
       res = fe_field_function.value(middle_point);
-      if (res < 0)
+      if (res > 0)
         begin_point = middle_point;
       else
         end_point = middle_point;
@@ -378,7 +378,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
       end_point += h * normal_vector;
       phi = pore_function_value(end_point, c1, c2);
     }
-    while (phi < 0);
+    while (phi > 0);
 
     double tol = 1e-6;
     double res;
@@ -387,7 +387,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     do
     {
       res = pore_function_value(middle_point, c1, c2);
-      if (res < 0)
+      if (res > 0)
         begin_point = middle_point;
       else
         end_point = middle_point;
@@ -421,7 +421,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
       end_point += h * normal_vector;
       phi = torus_function_value(end_point);
     }
-    while (phi < 0);
+    while (phi > 0);
 
     double tol = 1e-6;
     double res;
@@ -430,7 +430,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     do
     {
       res = torus_function_value(middle_point);
-      if (res < 0)
+      if (res > 0)
         begin_point = middle_point;
       else
         end_point = middle_point;
@@ -514,7 +514,7 @@ void initialize_distance_field_circle(hp::DoFHandler<dim> &dof_handler, Vector<d
   for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
   {
     Tensor<1, dim> rel_pos = support_points[i] - center;
-    solution(i) = rel_pos.norm() - radius;
+    solution(i) = radius - rel_pos.norm();
     // solution(i) *= pow(support_points[i][0] - 0.25, 2) +  pow(support_points[i][1] - 0.25, 2) + 0.1;
   }
 }
@@ -567,7 +567,7 @@ double signed_distance_square(Point<dim> &point, const Point<dim> &center, doubl
   else
     dist = min_multiple(v_sides);
 
-  double sign = rel_pos[0] < half_side & rel_pos[0] > -half_side & rel_pos[1] < half_side & rel_pos[1] > -half_side ? -1. : 1.;
+  double sign = rel_pos[0] < half_side & rel_pos[0] > -half_side & rel_pos[1] < half_side & rel_pos[1] > -half_side ? 1. : -1.;
 
   return sign * dist;
 }

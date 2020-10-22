@@ -262,6 +262,38 @@ def main():
         q_points_v = quad_points_volume(3)
         q_points_s, normal_vectors_s, weight_s = quad_points_surface(8)
 
+        # id_x, id_y, id_z = to_id_xyz(element_id, base)
+        # vertices = get_vertices(id_x, id_y, id_z, h)
+        # print(vertices)
+        # for i, physical_point_v in enumerate(vertices):
+        #     print(physical_point_v)
+        #     # physical_point = to_physical(q_point_v, point_c, scale)
+
+        #     print("norm of physical_point {}".format(np.linalg.norm(physical_point_v)))
+        #     print(level_set(physical_point_v))
+        #     print("\n")
+
+        # print(is_cut(vertices))
+
+        # num_positive = 0
+        # num_negative = 0
+        # for sub_q_points_s in q_points_s:
+        #     # print("\n")
+        #     for point_s in sub_q_points_s:
+        #         physical_point = to_physical(point_s, point_c, scale)
+        #         # print("norm of physical_point {}".format(np.linalg.norm(physical_point)))
+        #         print(physical_point)
+        #         # print(level_set(physical_point))
+        #         print(point_s)
+        #         if level_set(physical_point) > 0:
+        #             num_positive += 1
+        #         else:
+        #             num_negative += 1
+        #         # print("\n")
+
+        # print("num_positive = {}, num_negative = {}".format(num_positive, num_negative))
+        # exit()
+
         N = len(q_points_v)
         A = np.zeros((K, N))
         for i, q_point_v in enumerate(q_points_v):
