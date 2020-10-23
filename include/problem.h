@@ -9,6 +9,8 @@ public:
   NonlinearProblem(unsigned int case_flag_ = PORE_CASE,
                    unsigned int domain_flag_ = NARROW_BAND,
                    unsigned int refinement_level_ = 8,
+                   unsigned int refinement_increment_ = 1,
+                   unsigned int band_width_ = 1,
                    unsigned int map_choice_ = MAP_NEWTON,
                    int pore_number_ = CIRCLE_PORE);
   ~NonlinearProblem();
@@ -25,6 +27,7 @@ public:
 private:
   void cache_interface();
   void make_constraints();
+  void narrow_band_helper(hp::DoFHandler<dim> &dof_handler, int level);
   void setup_system();
   double compute_residual();
   void assemble_system_picard();
@@ -60,6 +63,8 @@ private:
   int pore_number;
   unsigned int map_choice;
   unsigned int refinement_level;
+  unsigned int refinement_increment;
+  unsigned int band_width;
 
   std::string vector_filename;
 
@@ -70,6 +75,8 @@ template <int dim>
 NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
                                         unsigned int domain_flag_,
                                         unsigned int refinement_level_,
+                                        unsigned int refinement_increment_,
+                                        unsigned int band_width_ ,
                                         unsigned int map_choice_,
                                         int pore_number_)
   :
@@ -82,7 +89,9 @@ NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
   case_flag(case_flag_),
   pore_number(pore_number_),
   map_choice(map_choice_),
-  refinement_level(refinement_level_)
+  refinement_level(refinement_level_),
+  refinement_increment(refinement_increment_),
+  band_width(band_width_)
 {
   int fe_degree = 1;
 
@@ -99,7 +108,6 @@ NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
 
   q_collection.push_back(QGauss<dim>(fe_degree + 1));
   q_collection.push_back(QGauss<dim>(fe_degree + 1));
-
   q_collection_face.push_back(QGauss < dim - 1 > (fe_degree + 1));
   q_collection_face.push_back(QGauss < dim - 1 > (fe_degree + 1));
 
@@ -139,7 +147,8 @@ void NonlinearProblem<dim>::cache_interface()
     {
       if (!cell->face(face_no)->at_boundary())
       {
-        if (cell->material_id() == FLAG_IN_BAND && cell->neighbor(face_no)->material_id() == FLAG_OUT_BAND)
+        if (cell->material_id() == FLAG_MID_BAND &&
+            (cell->neighbor(face_no)->material_id() == FLAG_IN || cell->neighbor(face_no)->material_id() == FLAG_IN_BAND))
         {
           fe_values_face_hp.reinit(cell, face_no);
           const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
@@ -217,34 +226,20 @@ void NonlinearProblem<dim>::make_constraints()
     for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
          cell != dof_handler.end(); ++cell)
     {
-      // For safety reasons, we may add an extra layer of padding
-      bool padding = false;
-      // for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
-      // {
-      //   if (!cell->face(face_no)->at_boundary())
-      //   {
-      //     if ( (cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() == FLAG_IN_BAND) ||
-      //          (cell->material_id() == FLAG_OUT && cell->neighbor(face_no)->material_id() == FLAG_OUT_BAND) )
-      //     {
-      //       padding = true;
-      //     }
-      //   }
-      // }
       unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
       local_dof_indices.resize(dofs_per_cell);
       cell->get_dof_indices(local_dof_indices);
       for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
       {
-        if (cell->material_id() == FLAG_IN && !padding)
+        if (cell->material_id() == FLAG_IN)
         {
           dof_flags[local_dof_indices[i]] = FLAG_IN;
         }
-        else if ((cell->material_id() == FLAG_OUT && !padding))
+        else if ((cell->material_id() == FLAG_OUT))
         {
           dof_flags[local_dof_indices[i]] = FLAG_OUT;
         }
       }
-
     }
 
     constraints.clear();
@@ -305,115 +300,151 @@ void NonlinearProblem<dim>::make_constraints()
 }
 
 
+template <int dim>
+void NonlinearProblem<dim>::narrow_band_helper(hp::DoFHandler<dim> &dof_handler, int level)
+{
+  int counter_band = 0;
+  for (const auto &cell : dof_handler.active_cell_iterators())
+  {
+    if (cell->level() == level)
+    {
+      bool positive_flag = false;
+      bool negative_flag = false;
+      for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+      {
+        double level_set_value;
+        if (case_flag == PORE_CASE)
+          level_set_value = pore_function_value(cell->vertex(v), c1, c2);
+        else if (case_flag == TORUS_CASE)
+          level_set_value = torus_function_value(cell->vertex(v));
+        else if (case_flag == FEM_CASE)
+          level_set_value = old_solution(cell->vertex_dof_index(v, 0, 0));
+        else if (case_flag == IMAGE_CASE)
+          assert(0 && "Image case not implemented yet!");
+        if (level_set_value >= 0)
+          positive_flag = true;
+        else
+          negative_flag = true;
+      }
+
+      if (positive_flag == true && negative_flag == true)
+      {
+        cell->set_material_id(FLAG_MID_BAND);
+        cell->set_active_fe_index(0);
+        cell->set_refine_flag();
+        counter_band++;
+      }
+      else if (positive_flag == true && negative_flag == false)
+      {
+        cell->set_material_id(FLAG_OUT);
+        cell->set_active_fe_index(1);
+      }
+      else if (positive_flag == false && negative_flag == true)
+      {
+        cell->set_material_id(FLAG_IN);
+        cell->set_active_fe_index(1);
+      }
+      else
+        assert(0 && "Error!");
+    }
+    else
+    {
+      // A special note (Tianju): The following ensures that the coarser cells must not be active.
+      // However, this line of code should be unncessary, logically.
+      // In 2D cases, it works well without this line of code.
+      // In 3D cases, it fails wihout it.
+      // I suspect there are some internal bugs in dealii function execute_coarsening_and_refinement
+      // where in 3D cases it changes my active_fe_index flag, which is terrible.
+      cell->set_active_fe_index(1);
+    }
+  }
+
+  std::cout << "   Number of middle_band cells " << counter_band << std::endl;
+
+  for (unsigned int i = 0; i < band_width; ++i)
+  {
+    for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      if (cell->level() == level)
+      {
+        cell->clear_user_flag();
+        for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
+        {
+          if (!cell->face(face_no)->at_boundary() && cell->level() == cell->neighbor_level(face_no))
+          {
+            if ( (cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() != FLAG_IN) ||
+                 (cell->material_id() == FLAG_OUT && cell->neighbor(face_no)->material_id() != FLAG_OUT) )
+            {
+              cell->set_user_flag();
+            }
+          }
+        }
+      }
+    }
+    for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      if (cell->level() == level)
+      {
+        if (cell->user_flag_set())
+        {
+          if (cell->material_id() == FLAG_IN)
+          {
+            cell->set_material_id(FLAG_IN_BAND);
+            cell->set_active_fe_index(0);
+            cell->set_refine_flag();
+          }
+          else if (cell->material_id() == FLAG_OUT)
+          {
+            cell->set_material_id(FLAG_OUT_BAND);
+            cell->set_active_fe_index(0);
+            cell->set_refine_flag();
+          }
+          counter_band++;
+        }
+      }
+    }
+  }
+  std::cout << "   Number of band cells " << counter_band << std::endl;
+
+  // Perform some tests
+  for (const auto &cell : dof_handler.active_cell_iterators())
+  {
+    if (cell->level() != level && cell->active_fe_index() == 0)
+      assert(0 && "Cell at coarser level, but active!");
+    if (cell->level() == level)
+    {
+      if (cell->refine_flag_set() && cell->active_fe_index() == 1)
+        assert (0 && "Cell refine flag set but not active");
+
+      if (!cell->refine_flag_set() && cell->active_fe_index() == 0)
+        aseert(0 && "Cell refine flag not set but active");
+    }
+  }
+
+}
+
 
 template <int dim>
 void NonlinearProblem<dim>::setup_system()
 {
 
+  std::cout << "  Strat grid" << std::endl;
+
   GridGenerator::hyper_cube(triangulation, -2, 2);
   triangulation.refine_global(refinement_level);
-  h = GridTools::minimal_cell_diameter(triangulation);
-
-  if (case_flag == PORE_CASE)
-  {
-    c1 = ((pore_number / 3) - 1) * 0.2;
-    c2 = ((pore_number % 3) - 1) * 0.2;
-    std::cout << "  Pore inf: c1 = " << c1 << ", c2 = " << c2 << std::endl;
-    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
-                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
-                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
-                      "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
-                      "_pore_" + Utilities::int_to_string(pore_number, 1);
-  }
-  else
-  {
-    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
-                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
-                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
-                      "_map_choice_" + Utilities::int_to_string(map_choice, 1);
-  }
 
   std::cout << "  General info: " << vector_filename << std::endl;
   std::cout << "  Mesh info: " << "h " << h << " square length " << 4 / pow(2, refinement_level) << std::endl;
 
-  int counter_in = 0;
-  for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
-       cell != dof_handler.end(); ++cell)
+  narrow_band_helper(dof_handler, refinement_level);
+  if (domain_flag == NARROW_BAND)
   {
-    bool is_surrogate_cell = true;
-    for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
+    for (unsigned int i = 0; i < refinement_increment; ++i)
     {
-      if (case_flag == PORE_CASE)
-        is_surrogate_cell = is_surrogate_cell &&  pore_function_value(cell->vertex(v), c1, c2) < 0;
-      else if (case_flag == TORUS_CASE)
-        is_surrogate_cell = is_surrogate_cell &&  torus_function_value(cell->vertex(v)) < 0;
-      else if (case_flag == FEM_CASE)
-        is_surrogate_cell = is_surrogate_cell && old_solution(cell->vertex_dof_index(v, 0, 0)) < 0;
-      else if (case_flag == IMAGE_CASE)
-        assert(0 && "Image case not implemented yet!");
-    }
-    if (is_surrogate_cell)
-    {
-      cell->set_material_id(FLAG_IN);
-      counter_in++;
-    }
-    else
-    {
-      cell->set_material_id(FLAG_OUT);
-    }
-    cell->set_active_fe_index(1);
-  }
-  std::cout << "  Number of inner surrogate cells " << counter_in << std::endl;
-
-  int counter_band = 0;
-  int offset_band_width = 4;
-
-  if (case_flag == TORUS_CASE)
-  {
-    offset_band_width = 4;
-  }
-
-  unsigned int band_width = pow(2, refinement_level - offset_band_width);
-
-
-  for (unsigned int i = 0; i < band_width; ++i)
-  {
-    for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
-         cell != dof_handler.end(); ++cell)
-    {
-      cell->clear_user_flag();
-      for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
-      {
-        if (!cell->face(face_no)->at_boundary())
-        {
-          if ( (cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() != FLAG_IN) ||
-               (cell->material_id() == FLAG_OUT && cell->neighbor(face_no)->material_id() != FLAG_OUT) )
-          {
-            cell->set_user_flag();
-          }
-        }
-      }
-    }
-    for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
-         cell != dof_handler.end(); ++cell)
-    {
-      if (cell->user_flag_set())
-      {
-        if (cell->material_id() == FLAG_IN)
-        {
-          cell->set_material_id(FLAG_IN_BAND);
-        }
-        else if (cell->material_id() == FLAG_OUT)
-        {
-          cell->set_material_id(FLAG_OUT_BAND);
-        }
-        cell->set_active_fe_index(0);
-        counter_band++;
-      }
+      triangulation.execute_coarsening_and_refinement();
+      narrow_band_helper(dof_handler, refinement_level + i + 1);
     }
   }
-  std::cout << "  Number of band cells " << counter_band << std::endl;
-
 
   dof_handler.distribute_dofs(fe_collection);
 
@@ -439,6 +470,30 @@ void NonlinearProblem<dim>::setup_system()
                                   /*keep_constrained_dofs = */ false);
   sparsity_pattern.copy_from(dsp);
   system_matrix.reinit(sparsity_pattern);
+
+  h = GridTools::minimal_cell_diameter(triangulation);
+
+  std::cout << "  End grid" << std::endl;
+
+  if (case_flag == PORE_CASE)
+  {
+    c1 = ((pore_number / 3) - 1) * 0.2;
+    c2 = ((pore_number % 3) - 1) * 0.2;
+    std::cout << "  Pore inf: c1 = " << c1 << ", c2 = " << c2 << std::endl;
+    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
+                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
+                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                      "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
+                      "_pore_" + Utilities::int_to_string(pore_number, 1);
+  }
+  else
+  {
+    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
+                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
+                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                      "_map_choice_" + Utilities::int_to_string(map_choice, 1);
+  }
+
 
 }
 
@@ -485,8 +540,7 @@ void NonlinearProblem<dim>::assemble_system_picard()
     local_rhs = 0;
     cell->get_dof_indices(local_dof_indices);
 
-    if ( (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND || solver_type == DISTANCE_SOLVER) &&
-         cell->active_fe_index() == 0 || domain_flag == GLOBAL)
+    if (cell->active_fe_index() == 0 || domain_flag == GLOBAL)
     {
       std::vector<double> solution_values(n_q_points);
       fe_values.get_function_values(solution, solution_values);
@@ -537,7 +591,8 @@ void NonlinearProblem<dim>::assemble_system_picard()
             }
           }
         }
-        else if (cell->material_id() == FLAG_IN_BAND && cell->neighbor(face_no)->material_id() == FLAG_OUT_BAND)
+        else if (cell->material_id() == FLAG_MID_BAND &&
+                 (cell->neighbor(face_no)->material_id() == FLAG_IN || cell->neighbor(face_no)->material_id() == FLAG_IN_BAND))
         {
           fe_values_face_hp.reinit(cell, face_no);
           const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
@@ -837,11 +892,16 @@ void NonlinearProblem<dim>::run()
             << std::endl;
 
 
-
   solver_type = DISTANCE_SOLVER;
   make_constraints();
+  std::cout << "  Start to assemble system" << std::endl;
   assemble_system_projection();
+  std::cout << "  End of assemble system" << std::endl;
+
+  std::cout << "  Start to solve..." << std::endl;
   solve_picard();
+  std::cout << "  End of solve" << std::endl;
+
   old_solution = solution;
   output_cycle_vtk(0);
 

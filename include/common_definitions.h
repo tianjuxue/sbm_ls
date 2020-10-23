@@ -18,7 +18,7 @@ enum map
 
 enum domain
 {
-  FLAG_IN, FLAG_OUT, FLAG_IN_BAND, FLAG_OUT_BAND
+  FLAG_IN, FLAG_OUT, FLAG_IN_BAND, FLAG_OUT_BAND, FLAG_MID_BAND
 };
 
 enum solver
