@@ -120,7 +120,7 @@ int main ()
     if (run_mode)
     {
       unsigned int refinement_level = 5;
-      unsigned int refinement_increment = 2;
+      unsigned int refinement_increment = 0;
       unsigned int band_width = 1;
       // NonlinearProblem<2> problem(PORE_CASE, GLOBAL, refinement_level, refinement_increment, band_width, MAP_NEWTON, 4);
       // NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 5, MAP_NEWTON);

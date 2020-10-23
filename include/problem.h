@@ -417,7 +417,7 @@ void NonlinearProblem<dim>::narrow_band_helper(hp::DoFHandler<dim> &dof_handler,
         assert (0 && "Cell refine flag set but not active");
 
       if (!cell->refine_flag_set() && cell->active_fe_index() == 0)
-        aseert(0 && "Cell refine flag not set but active");
+        assert(0 && "Cell refine flag not set but active");
     }
   }
 
@@ -432,9 +432,6 @@ void NonlinearProblem<dim>::setup_system()
 
   GridGenerator::hyper_cube(triangulation, -2, 2);
   triangulation.refine_global(refinement_level);
-
-  std::cout << "  General info: " << vector_filename << std::endl;
-  std::cout << "  Mesh info: " << "h " << h << " square length " << 4 / pow(2, refinement_level) << std::endl;
 
   narrow_band_helper(dof_handler, refinement_level);
   if (domain_flag == NARROW_BAND)
@@ -471,7 +468,10 @@ void NonlinearProblem<dim>::setup_system()
   sparsity_pattern.copy_from(dsp);
   system_matrix.reinit(sparsity_pattern);
 
+  // TODO(Tianju): Change h
   h = GridTools::minimal_cell_diameter(triangulation);
+  std::cout << "  General info: " << vector_filename << std::endl;
+  std::cout << "  Mesh info: " << "h " << h << " square length " << 4 / pow(2, refinement_level) << std::endl;
 
   std::cout << "  End grid" << std::endl;
 
