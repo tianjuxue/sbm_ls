@@ -17,26 +17,26 @@ template <int dim>
 double BoundaryValues<dim>::value(const Point<dim> & p,
                                   const unsigned int component) const
 {
-  return -1;
+  return 1.;
 }
 
 
 template <int dim>
-double pore_function_value(Point<dim> &point, double c1, double c2)
+double pore_function_value(const Point<dim> &point, double c1, double c2)
 {
   double x = point[0];
   double y = point[1];
   double theta = atan2(y, x);
   double r_square = pow(x, 2) + pow(y, 2);
   double value =  r_square - (1 + c1 * cos(4 * theta) + c2 * cos(8 * theta));
-  return -value;
+  return value;
 }
 
 
 // Mathematica code
 // Grad[x^2 + y^2 - (1 + c1 * Cos[4*ArcTan[y/x]] +  c2 * Cos[8*ArcTan[y/x]]), {x, y}]
 template <int dim>
-Tensor<1, dim> pore_function_gradient(Point<dim> &point, double c1, double c2)
+Tensor<1, dim> pore_function_gradient(const Point<dim> &point, double c1, double c2)
 {
   double x = point[0];
   double y = point[1];
@@ -45,25 +45,25 @@ Tensor<1, dim> pore_function_gradient(Point<dim> &point, double c1, double c2)
   Tensor<1, dim> gradient;
   gradient[0] = -4 * c1 * y * sin(4 * theta) / r_square - 8 * c2 * y * sin(8 * theta) / r_square + 2 * x;
   gradient[1] = 4 * c1 * x * sin(4 * theta) / r_square + 8 * c2 * x * sin(8 * theta) / r_square  + 2 * y;
-  return -gradient;
+  return gradient;
 }
 
 
 template <int dim>
-double torus_function_value(Point<dim> &point)
+double torus_function_value(const Point<dim> &point)
 {
   double x = point[0];
   double y = point[1];
   double z = point[2];
   double value  = 2 * y * (pow(y, 2) - 3 * pow(x, 2)) * (1 - pow(z, 2)) + pow((pow(x, 2) + pow(y, 2)), 2) - (9 * pow(z, 2) - 1) * (1 - pow(z, 2));
-  return -value;
+  return value;
 }
 
 
 // Mathematica code
 //  Grad[2*y*(y^2 - 3*x^2)*(1 - z^2) + (x^2 + y^2)^2 - (9*z^2 - 1)*(1 - z^2)), {x, y, z}]
 template <int dim>
-Tensor<1, dim> torus_function_gradient(Point<dim> &point)
+Tensor<1, dim> torus_function_gradient(const Point<dim> &point)
 {
   double x = point[0];
   double y = point[1];
@@ -72,9 +72,27 @@ Tensor<1, dim> torus_function_gradient(Point<dim> &point)
   gradient[0] = 4 * x * (pow(x, 2) + pow(y, 2)) - 12 * x * y * (1 -  pow(z, 2));
   gradient[1] = 2 * (1 - pow(z, 2)) * (pow(y, 2) - 3 * pow(x, 2)) + 4 * y * (pow(x, 2) + pow(y, 2)) + 4 * pow(y, 2) * (1 - pow(z, 2));
   gradient[2] = -4 * y * z * (pow(y, 2) - 3 * pow(x, 2)) - 18 * (1 - pow(z, 2)) * z + 2 * (9 * pow(z, 2) - 1) * z;
-  return -gradient;
+  return gradient;
 }
 
+
+template <int dim>
+void pore_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length, double c1, double c2)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    u[i] = pore_function_value(points[i], c1, c2);
+  }
+}
+
+template <int dim>
+void torus_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    u[i] = torus_function_value(points[i]);
+  }
+}
 
 
 template <int dim>
@@ -326,7 +344,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
       end_point += h * normal_vector;
       phi = fe_field_function.value(end_point);
     }
-    while (phi > 0);
+    while (phi < 0);
 
     double tol = 1e-6;
     double res;
@@ -335,7 +353,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     do
     {
       res = fe_field_function.value(middle_point);
-      if (res > 0)
+      if (res < 0)
         begin_point = middle_point;
       else
         end_point = middle_point;
@@ -378,7 +396,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
       end_point += h * normal_vector;
       phi = pore_function_value(end_point, c1, c2);
     }
-    while (phi > 0);
+    while (phi < 0);
 
     double tol = 1e-6;
     double res;
@@ -387,7 +405,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     do
     {
       res = pore_function_value(middle_point, c1, c2);
-      if (res > 0)
+      if (res < 0)
         begin_point = middle_point;
       else
         end_point = middle_point;
@@ -421,7 +439,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
       end_point += h * normal_vector;
       phi = torus_function_value(end_point);
     }
-    while (phi > 0);
+    while (phi < 0);
 
     double tol = 1e-6;
     double res;
@@ -430,7 +448,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     do
     {
       res = torus_function_value(middle_point);
-      if (res > 0)
+      if (res < 0)
         begin_point = middle_point;
       else
         end_point = middle_point;

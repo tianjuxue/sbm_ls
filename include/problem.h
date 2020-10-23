@@ -43,9 +43,7 @@ private:
   SparsityPattern           sparsity_pattern;
   SparseMatrix<double>      system_matrix;
 
-  Vector<double>            newton_update;
-  Vector<double>            system_rhs;
-
+  Vector<double> system_rhs;
   Vector<double> solution;
   Vector<double> old_solution;
 
@@ -76,7 +74,7 @@ NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
                                         int pore_number_)
   :
   dof_handler(triangulation),
-  alpha(1e1), // Magic number, may affect numerical instability
+  alpha(1e1), // Magic number, may affect numerical instability, 1e1 for 2D
   solver_type(0),
   c1(0.),
   c2(0.),
@@ -87,8 +85,17 @@ NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
   refinement_level(refinement_level_)
 {
   int fe_degree = 1;
-  fe_collection.push_back(FE_Q<dim>(fe_degree));
-  fe_collection.push_back(FE_Q<dim>(fe_degree));
+
+  if (domain_flag == NARROW_BAND)
+  {
+    fe_collection.push_back(FE_Q<dim>(fe_degree));
+    fe_collection.push_back(FE_Nothing<dim>());
+  }
+  else
+  {
+    fe_collection.push_back(FE_Q<dim>(fe_degree));
+    fe_collection.push_back(FE_Q<dim>(fe_degree));
+  }
 
   q_collection.push_back(QGauss<dim>(fe_degree + 1));
   q_collection.push_back(QGauss<dim>(fe_degree + 1));
@@ -246,12 +253,12 @@ void NonlinearProblem<dim>::make_constraints()
       if (dof_flags[i] == FLAG_IN)
       {
         constraints.add_line(i);
-        constraints.set_inhomogeneity(i, 1.);
+        constraints.set_inhomogeneity(i, -1.);
       }
       else if (dof_flags[i] == FLAG_OUT)
       {
         constraints.add_line(i);
-        constraints.set_inhomogeneity(i, -1);
+        constraints.set_inhomogeneity(i, 1);
       }
     }
     constraints.close();
@@ -329,33 +336,6 @@ void NonlinearProblem<dim>::setup_system()
   std::cout << "  General info: " << vector_filename << std::endl;
   std::cout << "  Mesh info: " << "h " << h << " square length " << 4 / pow(2, refinement_level) << std::endl;
 
-  dof_handler.distribute_dofs(fe_collection);
-  solution.reinit(dof_handler.n_dofs());
-  old_solution.reinit(dof_handler.n_dofs());
-
-  if (case_flag == PORE_CASE)
-    initialize_pore(dof_handler, solution, c1, c2);
-  else if (case_flag == TORUS_CASE)
-    initialize_torus(dof_handler, solution);
-  else if (case_flag == FEM_CASE)
-    initialize_distance_field_circle(dof_handler, solution, Point<dim>(0., 0.), 1);
-
-  old_solution = solution;
-  output_cycle_vtk(0);
-
-  newton_update.reinit(dof_handler.n_dofs());
-  system_rhs.reinit(dof_handler.n_dofs());
-
-
-  DynamicSparsityPattern dsp(dof_handler.n_dofs());
-  DoFTools::make_sparsity_pattern(dof_handler,
-                                  dsp,
-                                  constraints,
-                                  /*keep_constrained_dofs = */ false);
-  sparsity_pattern.copy_from(dsp);
-  system_matrix.reinit(sparsity_pattern);
-
-
   int counter_in = 0;
   for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
        cell != dof_handler.end(); ++cell)
@@ -364,11 +344,11 @@ void NonlinearProblem<dim>::setup_system()
     for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
     {
       if (case_flag == PORE_CASE)
-        is_surrogate_cell = is_surrogate_cell &&  pore_function_value(cell->vertex(v), c1, c2) > 0;
+        is_surrogate_cell = is_surrogate_cell &&  pore_function_value(cell->vertex(v), c1, c2) < 0;
       else if (case_flag == TORUS_CASE)
-        is_surrogate_cell = is_surrogate_cell &&  torus_function_value(cell->vertex(v)) > 0;
+        is_surrogate_cell = is_surrogate_cell &&  torus_function_value(cell->vertex(v)) < 0;
       else if (case_flag == FEM_CASE)
-        is_surrogate_cell = is_surrogate_cell && old_solution(cell->vertex_dof_index(v, 0, 0)) > 0;
+        is_surrogate_cell = is_surrogate_cell && old_solution(cell->vertex_dof_index(v, 0, 0)) < 0;
       else if (case_flag == IMAGE_CASE)
         assert(0 && "Image case not implemented yet!");
     }
@@ -381,17 +361,20 @@ void NonlinearProblem<dim>::setup_system()
     {
       cell->set_material_id(FLAG_OUT);
     }
+    cell->set_active_fe_index(1);
   }
   std::cout << "  Number of inner surrogate cells " << counter_in << std::endl;
 
   int counter_band = 0;
   int offset_band_width = 4;
-  unsigned int band_width = pow(2, refinement_level - offset_band_width);
 
   if (case_flag == TORUS_CASE)
   {
-    band_width = 2;
+    offset_band_width = 4;
   }
+
+  unsigned int band_width = pow(2, refinement_level - offset_band_width);
+
 
   for (unsigned int i = 0; i < band_width; ++i)
   {
@@ -416,7 +399,6 @@ void NonlinearProblem<dim>::setup_system()
     {
       if (cell->user_flag_set())
       {
-        counter_band++;
         if (cell->material_id() == FLAG_IN)
         {
           cell->set_material_id(FLAG_IN_BAND);
@@ -425,11 +407,39 @@ void NonlinearProblem<dim>::setup_system()
         {
           cell->set_material_id(FLAG_OUT_BAND);
         }
+        cell->set_active_fe_index(0);
+        counter_band++;
       }
     }
   }
-
   std::cout << "  Number of band cells " << counter_band << std::endl;
+
+
+  dof_handler.distribute_dofs(fe_collection);
+
+  solution.reinit(dof_handler.n_dofs());
+  old_solution.reinit(dof_handler.n_dofs());
+  system_rhs.reinit(dof_handler.n_dofs());
+
+  // if (case_flag == PORE_CASE)
+  //   initialize_pore(dof_handler, solution, c1, c2);
+  // else if (case_flag == TORUS_CASE)
+  //   initialize_torus(dof_handler, solution);
+  // else if (case_flag == FEM_CASE)
+  //   initialize_distance_field_circle(dof_handler, solution, Point<dim>(0., 0.), 1);
+
+  // old_solution = solution;
+  // output_cycle_vtk(0);
+
+
+  DynamicSparsityPattern dsp(dof_handler.n_dofs());
+  DoFTools::make_sparsity_pattern(dof_handler,
+                                  dsp,
+                                  constraints,
+                                  /*keep_constrained_dofs = */ false);
+  sparsity_pattern.copy_from(dsp);
+  system_matrix.reinit(sparsity_pattern);
+
 }
 
 
@@ -475,7 +485,8 @@ void NonlinearProblem<dim>::assemble_system_picard()
     local_rhs = 0;
     cell->get_dof_indices(local_dof_indices);
 
-    if (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND || solver_type == DISTANCE_SOLVER)
+    if ( (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND || solver_type == DISTANCE_SOLVER) &&
+         cell->active_fe_index() == 0 || domain_flag == GLOBAL)
     {
       std::vector<double> solution_values(n_q_points);
       fe_values.get_function_values(solution, solution_values);
@@ -558,7 +569,6 @@ void NonlinearProblem<dim>::assemble_system_picard()
         }
       }
     }
-
     constraints.distribute_local_to_global(local_matrix,
                                            local_rhs,
                                            local_dof_indices,
@@ -681,12 +691,21 @@ void NonlinearProblem<dim>::assemble_system_projection()
     local_rhs = 0;
     cell->get_dof_indices(local_dof_indices);
 
-    if (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND)
+    if (cell->active_fe_index() == 0 || domain_flag == GLOBAL)
     {
-      std::vector<double> solution_values(n_q_points);
-      fe_values.get_function_values(solution, solution_values);
-      std::vector<double> u_exact(n_q_points);
-      exact_solution(u_exact, fe_values.get_quadrature_points(), n_q_points);
+      std::vector<double> function_values(n_q_points);
+      if (case_flag == PORE_CASE)
+      {
+        pore_function(function_values, fe_values.get_quadrature_points(), n_q_points, c1, c2);
+      }
+      else if (case_flag == TORUS_CASE)
+      {
+        torus_function(function_values, fe_values.get_quadrature_points(), n_q_points);
+      }
+      else
+      {
+        assert(0 && "Other cases not implemented yet!");
+      }
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
@@ -696,7 +715,7 @@ void NonlinearProblem<dim>::assemble_system_projection()
           {
             local_matrix(i, j) += fe_values.shape_value(i, q) * fe_values.shape_value(j, q) * fe_values.JxW(q);
           }
-          local_rhs(i) += u_exact[q] * fe_values.shape_value(i, q) * fe_values.JxW(q);
+          local_rhs(i) += function_values[q] * fe_values.shape_value(i, q) * fe_values.JxW(q);
         }
       }
     }
@@ -817,21 +836,30 @@ void NonlinearProblem<dim>::run()
             << dof_handler.n_dofs()
             << std::endl;
 
-  if (domain_flag == NARROW_BAND)
-  {
-    solver_type = POISSON_BAND_SOLVER;
-    make_constraints();
-    assemble_system_poisson();
-    solve_picard();
-    output_cycle_vtk(0);
-    solver_type = DISTANCE_BAND_SOLVER;
-    make_constraints();
-  }
-  else
-  {
-    solver_type = DISTANCE_SOLVER;
-    make_constraints();
-  }
+
+
+  solver_type = DISTANCE_SOLVER;
+  make_constraints();
+  assemble_system_projection();
+  solve_picard();
+  old_solution = solution;
+  output_cycle_vtk(0);
+
+  // if (domain_flag == NARROW_BAND)
+  // {
+  //   solver_type = POISSON_BAND_SOLVER;
+  //   make_constraints();
+  //   assemble_system_poisson();
+  //   solve_picard();
+  //   output_cycle_vtk(0);
+  //   solver_type = DISTANCE_BAND_SOLVER;
+  //   make_constraints();
+  // }
+  // else
+  // {
+  //   solver_type = DISTANCE_SOLVER;
+  //   make_constraints();
+  // }
 
   unsigned int picard_step = 0;
   double res = 1e3;

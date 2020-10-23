@@ -113,18 +113,15 @@
 int main ()
 {
  
-  PETScWrappers::MPI::Vector solution;
-  exit(0);
-
   bool debug_mode = true;
   bool run_mode = true;
   if (debug_mode)
   {
     if (run_mode)
     {
-      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, 6, MAP_NEWTON, 4);
+      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, 7, MAP_NEWTON, 4);
       // NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 5, MAP_NEWTON);
-      NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 6, MAP_NEWTON);
+      NonlinearProblem<3> problem(TORUS_CASE, NARROW_BAND, 5, MAP_NEWTON);
       problem.run();
     }
     else

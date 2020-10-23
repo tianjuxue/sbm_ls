@@ -5,7 +5,7 @@ using namespace dealii;
 
 
 template <int dim>
-void exact_solution (std::vector<double> &u_e, const std::vector<Point<dim>> &points, int length)
+void exact_solution(std::vector<double> &u_e, const std::vector<Point<dim>> &points, int length)
 {
   for (int i = 0; i < length; ++i)
   {
