@@ -316,8 +316,9 @@ def main():
         quad_points_to_save.append(to_physical(q_points_v, point_c, scale))
         weights_to_save.append(quad_weights * np.power(scale, 2))
 
-    np.savetxt('data/dat/surface_integral/{}_quads.dat'.format(surface), np.asarray(quad_points_to_save).reshape(-1, DIM))
-    np.savetxt('data/dat/surface_integral/{}_weights.dat'.format(surface), np.asarray(weights_to_save).reshape(-1))
+    case_no = 1 if surface == 'torus2' else 2
+    np.savetxt('data/dat/surface_integral/case_{}_quads.dat'.format(case_no), np.asarray(quad_points_to_save).reshape(-1, DIM))
+    np.savetxt('data/dat/surface_integral/case_{}_weights.dat'.format(case_no), np.asarray(weights_to_save).reshape(-1))
 
     print("Error is {:.5f}".format(hmf_result - ground_truth))
 

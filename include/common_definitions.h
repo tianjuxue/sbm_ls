@@ -26,8 +26,7 @@ enum solver
   DISTANCE_SOLVER, POISSON_BAND_SOLVER, DISTANCE_BAND_SOLVER
 };
 
-unsigned int CIRCLE_PORE = 4; // Circular pore has analytical solutions, so we specially highlight it
-
+int CIRCLE_PORE = 4; // Circular pore has analytical solutions, so we specially highlight it
 double DOMAIN_SIZE = 2;
 
 #endif

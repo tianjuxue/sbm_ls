@@ -99,37 +99,140 @@ double compute_SD_error(hp::DoFHandler<dim> &dof_handler,
 
 
 template <int dim>
-double compute_interface_error(hp::DoFHandler<dim> &dof_handler,
-                               Vector<double> &solution,
-                               double c1,
-                               double c2)
+double compute_interface_error_pore(hp::DoFHandler<dim> &dof_handler,
+                                    Vector<double> &solution,
+                                    double c1,
+                                    double c2)
 {
   Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
-
   unsigned int num_intervals = 100000;
-  std::vector<Point<dim>> quad_points(num_intervals + 1);
-  std::vector<double> line_values(num_intervals + 1);
+  std::vector<Point<dim>> quad_points;
   for (unsigned int i = 0; i < num_intervals + 1; ++i)
   {
     double quad_theta = i * 2 * M_PI / num_intervals;
     double radius = sqrt(1 + c1 * cos(4 * quad_theta) + c2 * cos(8 * quad_theta));
-    double x = radius * cos(quad_theta);
-    double y = radius * sin(quad_theta);
-    quad_points[i][0] = x;
-    quad_points[i][1] = y;
+    Point<dim> quad_point;
+    quad_point[0] = radius * cos(quad_theta);
+    quad_point[1] = radius * sin(quad_theta);
+    quad_points.push_back(quad_point);
   }
-
-  fe_field_function.value_list(quad_points, line_values);
+  std::vector<double> quad_values(num_intervals + 1, 0.);
+  fe_field_function.value_list(quad_points, quad_values);
   double line_integral = 0;
   for (unsigned int i = 0; i < num_intervals; ++i)
   {
-    double value_start = pow(line_values[i], 2);
-    double value_end = pow(line_values[i + 1], 2);
+    double value_start = pow(quad_values[i], 2);
+    double value_end = pow(quad_values[i + 1], 2);
     double interval_measure = (quad_points[i + 1] - quad_points[i]).norm();
     line_integral += (value_start + value_end) * interval_measure / 2; // Trapezoid rule
   }
   return line_integral;
 }
 
+
+// Reference: http://math.mit.edu/~jorloff/suppnotes/suppnotes02/v9.pdf
+template <int dim>
+double compute_interface_error_sphere(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution)
+{
+  Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
+  double radius = 1.; // Hard coded, we don't change the radius throughout the work
+
+  // unsigned int num_intervals_theta = 2000;
+  // unsigned int num_intervals_phi = 1000;
+  unsigned int num_intervals_theta = 2000;
+  unsigned int num_intervals_phi = 1000;
+
+  std::vector<Point<dim>> quad_points;
+  std::vector<double> jacobians;
+  for (unsigned int i = 0; i < num_intervals_theta; ++i)
+  {
+    double quad_theta = (i + 1. / 2.) * 2 * M_PI / num_intervals_theta;
+    for (unsigned j = 0; j < num_intervals_phi; ++j)
+    {
+      double quad_phi = (j + 1. / 2.) * M_PI / num_intervals_phi;
+      Point<dim> quad_point;
+      quad_point[0] = radius * sin(quad_phi) * cos(quad_theta);
+      quad_point[1] = radius * sin(quad_phi) * sin(quad_theta);
+      quad_point[2] = radius * cos(quad_phi);
+      quad_points.push_back(quad_point);
+      jacobians.push_back(pow(radius, 2) * sin(quad_phi));
+    }
+  }
+
+  std::vector<double> quad_values(num_intervals_theta * num_intervals_phi, 0.);
+  std::cout << "  Start computing quad point values..." << std::endl;
+  fe_field_function.value_list(quad_points, quad_values);
+  std::cout << "  Finish computing quad point values" << std::endl;
+  double surface_integral = 0;
+  double weight = 2 * M_PI / num_intervals_theta * M_PI / num_intervals_phi;
+  double area = 0;
+  for (unsigned int i = 0; i < num_intervals_theta; ++i)
+  {
+    for (unsigned j = 0; j < num_intervals_phi; ++j)
+    {
+      double quad_value = quad_values[i * num_intervals_phi + j];
+      double jacobian = jacobians[i * num_intervals_phi + j];
+      surface_integral += pow(quad_value, 2) * jacobian * weight;
+      area += jacobian * weight;
+    }
+  }
+
+  std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(radius, 2) << std::endl;
+  std::cout << "  surface_integral is " << surface_integral << std::endl;
+  return surface_integral;
+}
+
+
+// Moment fitting method to compute interface error
+// Reference: https://onlinelibrary.wiley.com/doi/abs/10.1002/nme.4569
+template <int dim>
+double compute_interface_error_hmf(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution,
+                                   std::string &quads_dat_filename, std::string &weights_dat_filename)
+{
+  std::cout << "  quads_dat_filename: " << quads_dat_filename << " weights_dat_filename: " << weights_dat_filename << std::endl;
+  std::ifstream input_quads_file(quads_dat_filename);
+  std::ifstream input_weights_file(weights_dat_filename);
+  std::vector<Point<dim>> quad_points;
+  std::vector<double> weights;
+  std::cout << "  Reading quads file and weights file... " << std::endl;
+  if (input_quads_file.is_open() && input_weights_file.is_open())
+  {
+    double weight;
+    Point<dim> quad_point;
+    while (input_weights_file >> weight)
+    {
+      weights.push_back(weight);
+      for (int i = 0; i < dim; ++i)
+        input_quads_file >> quad_point[i];
+      quad_points.push_back(quad_point);
+    }
+  }
+  else
+  {
+    assert(0 && "File not open!");
+  }
+  input_weights_file.close();
+  input_quads_file.close();
+  std::cout << "  Read in " << weights.size() << " quad points and " <<   weights.size() << " weights" << std::endl;
+
+  std::vector<double> quad_values(weights.size(), 0.);
+  Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
+  double radius = 1.;
+  std::cout << "  Start computing quad point values..." << std::endl;
+  fe_field_function.value_list(quad_points, quad_values);
+  std::cout << "  Finish computing quad point values" << std::endl;
+
+  double surface_integral = 0;
+  double area = 0;
+  for (unsigned i = 0; i < weights.size(); ++i)
+  {
+    surface_integral += pow(quad_values[i], 2) * weights[i];
+    area += weights[i];
+  }
+
+  std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(radius, 2) << std::endl;
+  std::cout << "  surface_integral is " << surface_integral << std::endl;
+  return surface_integral;
+}
 
 #endif

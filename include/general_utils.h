@@ -13,6 +13,8 @@ public:
   virtual double value(const Point<dim> & p,
                        const unsigned int component = 0) const override;
 };
+
+
 template <int dim>
 double BoundaryValues<dim>::value(const Point<dim> & p,
                                   const unsigned int component) const
@@ -33,6 +35,28 @@ double pore_function_value(const Point<dim> &point, double c1, double c2)
 }
 
 
+template <int dim>
+double torus_function_value(const Point<dim> &point)
+{
+  double x = point[0];
+  double y = point[1];
+  double z = point[2];
+  double value  = 2 * y * (pow(y, 2) - 3 * pow(x, 2)) * (1 - pow(z, 2)) + pow((pow(x, 2) + pow(y, 2)), 2) - (9 * pow(z, 2) - 1) * (1 - pow(z, 2));
+  return value;
+}
+
+
+template <int dim>
+double sphere_function_value(const Point<dim> &point)
+{
+  double x = point[0];
+  double y = point[1];
+  double z = point[2];
+  double value  = pow(x, 2) + pow(y, 2) + pow(z, 2) - 1;
+  return value;
+}
+
+
 // Mathematica code
 // Grad[x^2 + y^2 - (1 + c1 * Cos[4*ArcTan[y/x]] +  c2 * Cos[8*ArcTan[y/x]]), {x, y}]
 template <int dim>
@@ -46,17 +70,6 @@ Tensor<1, dim> pore_function_gradient(const Point<dim> &point, double c1, double
   gradient[0] = -4 * c1 * y * sin(4 * theta) / r_square - 8 * c2 * y * sin(8 * theta) / r_square + 2 * x;
   gradient[1] = 4 * c1 * x * sin(4 * theta) / r_square + 8 * c2 * x * sin(8 * theta) / r_square  + 2 * y;
   return gradient;
-}
-
-
-template <int dim>
-double torus_function_value(const Point<dim> &point)
-{
-  double x = point[0];
-  double y = point[1];
-  double z = point[2];
-  double value  = 2 * y * (pow(y, 2) - 3 * pow(x, 2)) * (1 - pow(z, 2)) + pow((pow(x, 2) + pow(y, 2)), 2) - (9 * pow(z, 2) - 1) * (1 - pow(z, 2));
-  return value;
 }
 
 
@@ -77,6 +90,20 @@ Tensor<1, dim> torus_function_gradient(const Point<dim> &point)
 
 
 template <int dim>
+Tensor<1, dim> sphere_function_gradient(const Point<dim> &point)
+{
+  double x = point[0];
+  double y = point[1];
+  double z = point[2];
+  Tensor<1, dim> gradient;
+  gradient[0] = 2 * x;
+  gradient[1] = 2 * y;
+  gradient[2] = 2 * z;
+  return gradient;
+}
+
+
+template <int dim>
 void pore_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length, double c1, double c2)
 {
   for (int i = 0; i < length; ++i)
@@ -85,12 +112,23 @@ void pore_function(std::vector<double> &u, const std::vector<Point<dim>> &points
   }
 }
 
+
 template <int dim>
 void torus_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length)
 {
   for (int i = 0; i < length; ++i)
   {
     u[i] = torus_function_value(points[i]);
+  }
+}
+
+
+template <int dim>
+void sphere_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    u[i] = sphere_function_value(points[i]);
   }
 }
 
@@ -234,6 +272,7 @@ void vec2num_values(std::vector<Vector<double> > &vec,
     num[i] = vec[i][temp];
   }
 }
+
 
 // From vector<Tensor<1, dim>>, extract Tensor<2, dim>
 template <int dim>

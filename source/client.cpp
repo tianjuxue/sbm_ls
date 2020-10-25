@@ -114,22 +114,25 @@ int main ()
 {
  
   bool debug_mode = true;
-  bool run_mode = true;
+  bool run_mode = false;
   if (debug_mode)
   {
     if (run_mode)
     {
       unsigned int refinement_level = 5;
-      unsigned int refinement_increment = 0;
+      unsigned int refinement_increment = 1;
       unsigned int band_width = 1;
-      NonlinearProblem<2> problem(PORE_CASE, GLOBAL, refinement_level, refinement_increment, band_width, MAP_NEWTON, 4);
+      // NonlinearProblem<2> problem(PORE_CASE, GLOBAL, refinement_level, refinement_increment, band_width, MAP_NEWTON, 4);
       // NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 5, MAP_NEWTON);
-      // NonlinearProblem<3> problem(TORUS_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
+      NonlinearProblem<3> problem(SPHERE_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
       problem.run();
     }
     else
     {
-      NonlinearProblem<2> problem;
+      unsigned int refinement_level = 5;
+      unsigned int refinement_increment = 1;
+      unsigned int band_width = 1;
+      NonlinearProblem<3> problem(SPHERE_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
       problem.error_analysis();
     }
   }

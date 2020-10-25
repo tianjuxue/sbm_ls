@@ -20,6 +20,7 @@ public:
   void output_vtk(std::string &filename);
   void output_binary();
   double h;
+  double L_inf_error;
   double L2_error;
   double SD_error;
   double interface_error;
@@ -80,9 +81,13 @@ NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
                                         unsigned int map_choice_,
                                         int pore_number_)
   :
+  L_inf_error(0.),
+  L2_error(0.),
+  SD_error(0.),
+  interface_error(0.),
   dof_handler(triangulation),
   alpha(1e1), // Magic number, may affect numerical instability, 1e1 for 2D
-  solver_type(0),
+  solver_type(DISTANCE_SOLVER),
   c1(0.),
   c2(0.),
   domain_flag(domain_flag_),
@@ -177,6 +182,11 @@ void NonlinearProblem<dim>::cache_interface()
             function_value = torus_function_value<dim>;
             function_gradient = torus_function_gradient<dim>;
           }
+          else if (case_flag == SPHERE_CASE)
+          {
+            function_value = sphere_function_value<dim>;
+            function_gradient = sphere_function_gradient<dim>;
+          }
           else if (case_flag == FEM_CASE)
           {
             // Using FEFieldFunction can be faster than functions defined under VectorTools (e.g., point_value)
@@ -184,7 +194,7 @@ void NonlinearProblem<dim>::cache_interface()
             // phi = VectorTools::point_value(dof_handler, solution, target_point);
             // grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
             Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
- 
+
             // The following will throw an error: "invalid use of non-static member function"
             // function_value = fe_field_function.value;
             // function_gradient = fe_field_function.gradient;
@@ -331,6 +341,8 @@ void NonlinearProblem<dim>::narrow_band_helper(hp::DoFHandler<dim> &dof_handler,
           level_set_value = pore_function_value(cell->vertex(v), c1, c2);
         else if (case_flag == TORUS_CASE)
           level_set_value = torus_function_value(cell->vertex(v));
+        else if (case_flag == SPHERE_CASE)
+          level_set_value = sphere_function_value(cell->vertex(v));
         else if (case_flag == FEM_CASE)
           level_set_value = old_solution(cell->vertex_dof_index(v, 0, 0));
         else if (case_flag == IMAGE_CASE)
@@ -456,6 +468,9 @@ void NonlinearProblem<dim>::setup_system()
       narrow_band_helper(dof_handler, refinement_level + i + 1);
     }
   }
+  else
+    refinement_increment = 0;
+
 
   dof_handler.distribute_dofs(fe_collection);
 
@@ -482,21 +497,24 @@ void NonlinearProblem<dim>::setup_system()
   sparsity_pattern.copy_from(dsp);
   system_matrix.reinit(sparsity_pattern);
 
-  // TODO(Tianju): Change h
   h = GridTools::minimal_cell_diameter(triangulation);
+  // h = 4 / pow(2, refinement_level + refinement_increment);
   std::cout << "  General info: " << vector_filename << std::endl;
-  std::cout << "  Mesh info: " << "h " << h << " square length " << 4 / pow(2, refinement_level) << std::endl;
+  std::cout << "  Mesh info: " << "h " << h << ", which should be "
+            << 4 / pow(2, refinement_level + refinement_increment) * sqrt(dim) << std::endl;
 
   std::cout << "  End grid" << std::endl;
 
   if (case_flag == PORE_CASE)
   {
+    // pore_number can't be of "unsigned int" type, otherwise overflow
     c1 = ((pore_number / 3) - 1) * 0.2;
     c2 = ((pore_number % 3) - 1) * 0.2;
     std::cout << "  Pore inf: c1 = " << c1 << ", c2 = " << c2 << std::endl;
     vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
                       "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
                       "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                      "_" + Utilities::int_to_string(refinement_increment, 1) +
                       "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
                       "_pore_" + Utilities::int_to_string(pore_number, 1);
   }
@@ -505,6 +523,7 @@ void NonlinearProblem<dim>::setup_system()
     vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
                       "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
                       "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                      "_" + Utilities::int_to_string(refinement_increment, 1) +
                       "_map_choice_" + Utilities::int_to_string(map_choice, 1);
   }
 
@@ -771,6 +790,10 @@ void NonlinearProblem<dim>::assemble_system_projection()
       {
         torus_function(function_values, fe_values.get_quadrature_points(), n_q_points);
       }
+      else if (case_flag == SPHERE_CASE)
+      {
+        sphere_function(function_values, fe_values.get_quadrature_points(), n_q_points);
+      }
       else
       {
         assert(0 && "Other cases not implemented yet!");
@@ -858,23 +881,41 @@ void NonlinearProblem<dim>::error_analysis()
 {
   // std::cout <<  std::endl <<  std::endl << "############################################################" << std::endl;
 
-  // std::cout << "  Start to set up system" << std::endl;
+  std::cout << "  Start to set up system" << std::endl;
   setup_system();
-  // std::cout << "  End of set up system" << std::endl;
+  std::cout << "  End of set up system" << std::endl;
 
   std::ifstream input_solution_file(vector_filename);
   solution.block_read(input_solution_file);
   input_solution_file.close();
 
-  L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection);
-  // std::cout << "  L2 error is " << L2_error << std::endl;
-  interface_error = compute_interface_error(dof_handler, solution, c1, c2);
-  // std::cout << "  interface error is " << interface_error << std::endl;
+  std::cout << "  Start computing SD_error..." << std::endl;
   SD_error = compute_SD_error(dof_handler, solution, fe_collection, q_collection);
+  std::cout << "  Finish computing SD_error: " << SD_error << std::endl;
+
+  std::string quads_dat_filename = "../data/dat/surface_integral/case_" + Utilities::int_to_string(case_flag, 1) + "_quads.dat";
+  std::string weights_dat_filename = "../data/dat/surface_integral/case_" + Utilities::int_to_string(case_flag, 1) + "_weights.dat";
+
+  if (case_flag == PORE_CASE)
+  {
+    interface_error = compute_interface_error_pore(dof_handler, solution, c1, c2);
+    if (pore_number == CIRCLE_PORE)
+      L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection);
+  }
+  else if (case_flag == TORUS_CASE)
+  {
+    interface_error = compute_interface_error_hmf(dof_handler, solution, quads_dat_filename, weights_dat_filename);
+  }
+  else if (case_flag == SPHERE_CASE)
+  {
+    // interface_error = compute_interface_error_sphere(dof_handler, solution);
+    interface_error = compute_interface_error_hmf(dof_handler, solution, quads_dat_filename, weights_dat_filename);
+  }
 
   std::string vtk_filename = "../data/vtk/case_" + Utilities::int_to_string(case_flag, 1) +
                              "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
                              "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                             "_" + Utilities::int_to_string(refinement_increment, 1) +
                              "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
                              "_pore_" + Utilities::int_to_string(pore_number, 1) + ".vtk";
   output_vtk(vtk_filename);
@@ -937,7 +978,7 @@ void NonlinearProblem<dim>::run()
 
   unsigned int picard_step = 0;
   double res = 1e3;
-  while (res > 1e-8 && picard_step < 1000)
+  while (res > 1e-8 && picard_step < 100)
   {
     std::cout << std::endl << "  Picard step " << picard_step << std::endl;
 
@@ -963,8 +1004,8 @@ void NonlinearProblem<dim>::run()
     // std::cout << "  L2 error is " << L2_error << std::endl;
   }
 
-  double interface_error = compute_interface_error(dof_handler, solution, c1, c2);
-  std::cout << "  interface error is " << interface_error << std::endl;
+  // double interface_error = compute_interface_error_pore(dof_handler, solution, c1, c2);
+  // std::cout << "  interface error is " << interface_error << std::endl;
   output_binary();
 }
 
