@@ -110,96 +110,8 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
                     std::vector<Tensor<1, dim>> &distance_vectors,
                     const std::vector<Point<dim>> &points,
                     int length,
-                    hp::DoFHandler<dim> &dof_handler,
-                    Vector<double> &solution)
-{
-  // Using FEFieldFunction can be faster than functions defined under VectorTools (e.g., point_value)
-  // See https://www.dealii.org/current/doxygen/deal.II/namespaceVectorTools.html#acd358e9b110ccbf4a7f76796d206b9c7
-  // phi = VectorTools::point_value(dof_handler, solution, target_point);
-  // grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
-  Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
-
-  for (int i = 0; i < length; ++i)
-  {
-    // std::cout << std::endl << "  Point is " << points[i] << std::endl;
-    Point<dim> target_point;
-    target_point = points[i];
-    double phi;
-    Tensor<1, dim> grad_phi;
-    double tol = 1e-5;
-    double res = 1.;
-    double relax_param = 1.;
-    Tensor<1, dim> delta1, delta2;
-    int step = 0;
-    int max_step = 100;
-
-    phi = fe_field_function.value(target_point);
-    grad_phi = fe_field_function.gradient(target_point);
-
-    while (res > tol && step < max_step)
-    {
-      delta1 = -phi * grad_phi / (grad_phi * grad_phi);
-      delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
-      target_point = target_point + relax_param * (delta1 + delta2);
-
-      // TODO: Bound the point, hard code, change
-      target_point[0] = target_point[0] > 2 ? 0. : target_point[0];
-      target_point[0] = target_point[0] < -2 ? 0. : target_point[0];
-      target_point[1] = target_point[1] > 2 ? 0. : target_point[1];
-      target_point[1] = target_point[1] < -2 ? 0. : target_point[1];
-
-      phi = fe_field_function.value(target_point);
-      grad_phi = fe_field_function.gradient(target_point);
-      res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
-      step++;
-
-      // std::cout << "  res is " << res << std::endl;
-      // std::cout << "  res1 is " << abs(phi) << std::endl;
-      // std::cout << "  res2 is " << cross_product_norm(grad_phi, (points[i] - target_point)) << std::endl;
-      // std::cout << "  The point found: " << target_point << std::endl;
-    }
-
-    if (res > tol)
-    {
-      tol = 1e-5;
-      relax_param = 0.1;
-      while (abs(phi) > tol)
-      {
-        delta1 = -phi * grad_phi / (grad_phi * grad_phi);
-        // delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
-        // target_point = target_point + relax_param * (delta1 + delta2);
-        target_point = target_point + relax_param * (delta1);
-        phi = fe_field_function.value(target_point);
-        grad_phi = fe_field_function.gradient(target_point);
-
-        res = abs(phi);
-        step++;
-      }
-      std::cout << "  End of bad point converge at step " << step << " mapped point " << target_point << " phi value " << phi << std::endl;
-    }
-
-    // std::cout << "  Total step is " << step << std::endl;
-    target_points[i] = target_point;
-    normal_vectors[i] = -grad_phi / grad_phi.norm();
-    distance_vectors[i] = target_point - points[i];
-    std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-              << "  phi value "  << fe_field_function.value(target_point)
-              << "  mapped points " << target_point << std::endl;
-
-  }
-
-  std::cout << std::endl;
-}
-
-
-template <int dim>
-void sbm_map_newton(std::vector<Point<dim>> &target_points,
-                    std::vector<Tensor<1, dim>> &normal_vectors,
-                    std::vector<Tensor<1, dim>> &distance_vectors,
-                    const std::vector<Point<dim>> &points,
-                    int length,
-                    double c1,
-                    double c2)
+                    std::function<double (const Point<dim> &)> &function_value,
+                    std::function<Tensor<1, dim>(const Point<dim> &)> &function_gradient)
 {
   for (int i = 0; i < length; ++i)
   {
@@ -214,8 +126,8 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
     int step = 0;
     int max_step = 100;
 
-    phi = pore_function_value(target_point, c1, c2);
-    grad_phi = pore_function_gradient(target_point, c1, c2);
+    phi = function_value(target_point);
+    grad_phi = function_gradient(target_point);
 
     while (res > tol && step < max_step)
     {
@@ -223,14 +135,14 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
       delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
       target_point = target_point + relax_param * (delta1 + delta2);
 
-      // TODO: Bound the point, hard code, change
-      target_point[0] = target_point[0] > 2 ? 0. : target_point[0];
-      target_point[0] = target_point[0] < -2 ? 0. : target_point[0];
-      target_point[1] = target_point[1] > 2 ? 0. : target_point[1];
-      target_point[1] = target_point[1] < -2 ? 0. : target_point[1];
+      // Bound the point
+      target_point[0] = target_point[0] > DOMAIN_SIZE ? 0. : target_point[0];
+      target_point[0] = target_point[0] < -DOMAIN_SIZE ? 0. : target_point[0];
+      target_point[1] = target_point[1] > DOMAIN_SIZE ? 0. : target_point[1];
+      target_point[1] = target_point[1] < -DOMAIN_SIZE ? 0. : target_point[1];
 
-      phi = pore_function_value(target_point, c1, c2);
-      grad_phi = pore_function_gradient(target_point, c1, c2);
+      phi = function_value(target_point);
+      grad_phi = function_gradient(target_point);
       res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
       step++;
     }
@@ -243,80 +155,22 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
       {
         delta1 = -phi * grad_phi / (grad_phi * grad_phi);
         target_point = target_point + relax_param * (delta1);
-        phi = pore_function_value(target_point, c1, c2);
-        grad_phi = pore_function_gradient(target_point, c1, c2);
+        phi = function_value(target_point);
+        grad_phi = function_gradient(target_point);
         res = abs(phi);
         step++;
       }
+      // std::cout << "  End of bad point converge at step " << step << " mapped point " << target_point << " phi value " << phi << std::endl;
     }
 
     target_points[i] = target_point;
     normal_vectors[i] = -grad_phi / grad_phi.norm();
     distance_vectors[i] = target_point - points[i];
+    // std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
+    //           << "  phi value "  << function_value(target_point)
+    //           << "  mapped points " << target_point << std::endl;
   }
-}
-
-
-template <int dim>
-void sbm_map_newton(std::vector<Point<dim>> &target_points,
-                    std::vector<Tensor<1, dim>> &normal_vectors,
-                    std::vector<Tensor<1, dim>> &distance_vectors,
-                    const std::vector<Point<dim>> &points,
-                    int length)
-{
-  for (int i = 0; i < length; ++i)
-  {
-    Point<dim> target_point;
-    target_point = points[i];
-    double phi;
-    Tensor<1, dim> grad_phi;
-    double tol = 1e-5;
-    double res = 1.;
-    double relax_param = 1.;
-    Tensor<1, dim> delta1, delta2;
-    int step = 0;
-    int max_step = 100;
-
-    phi = torus_function_value(target_point);
-    grad_phi = torus_function_gradient(target_point);
-
-    while (res > tol && step < max_step)
-    {
-      delta1 = -phi * grad_phi / (grad_phi * grad_phi);
-      delta2 = (points[i] - target_point) - ( (points[i] - target_point) * grad_phi / (grad_phi * grad_phi) ) * grad_phi;
-      target_point = target_point + relax_param * (delta1 + delta2);
-
-      // TODO: Bound the point, hard code, change
-      target_point[0] = target_point[0] > 2 ? 0. : target_point[0];
-      target_point[0] = target_point[0] < -2 ? 0. : target_point[0];
-      target_point[1] = target_point[1] > 2 ? 0. : target_point[1];
-      target_point[1] = target_point[1] < -2 ? 0. : target_point[1];
-
-      phi = torus_function_value(target_point);
-      grad_phi = torus_function_gradient(target_point);
-      res = abs(phi) + cross_product_norm(grad_phi, (points[i] - target_point));
-      step++;
-    }
-
-    if (res > tol)
-    {
-      tol = 1e-5;
-      relax_param = 0.1;
-      while (abs(phi) > tol)
-      {
-        delta1 = -phi * grad_phi / (grad_phi * grad_phi);
-        target_point = target_point + relax_param * (delta1);
-        phi = torus_function_value(target_point);
-        grad_phi = torus_function_gradient(target_point);
-        res = abs(phi);
-        step++;
-      }
-    }
-
-    target_points[i] = target_point;
-    normal_vectors[i] = -grad_phi / grad_phi.norm();
-    distance_vectors[i] = target_point - points[i];
-  }
+  // std::cout << std::endl;
 }
 
 
@@ -326,13 +180,9 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
                            std::vector<Tensor<1, dim>> &distance_vectors,
                            const std::vector<Point<dim>> &points,
                            int length,
-                           hp::DoFHandler<dim> &dof_handler,
-                           Vector<double> &solution,
-                           double h)
+                           double h,
+                           std::function<double (const Point<dim> &)> &function_value)
 {
-
-  Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
-
   for (int i = 0; i < length; ++i)
   {
     Point<dim> begin_point = points[i];
@@ -342,7 +192,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     do
     {
       end_point += h * normal_vector;
-      phi = fe_field_function.value(end_point);
+      phi = function_value(end_point);
     }
     while (phi < 0);
 
@@ -352,7 +202,7 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
 
     do
     {
-      res = fe_field_function.value(middle_point);
+      res = function_value(middle_point);
       if (res < 0)
         begin_point = middle_point;
       else
@@ -364,102 +214,13 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     target_points[i] = middle_point;
     distance_vectors[i] = target_points[i] - points[i];
 
-    std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
-              << "  phi value "  << fe_field_function.value(middle_point)
-              << "  mapped points " << middle_point << std::endl;
+    // std::cout << "  End of this call to sbm_map, surrogate points[i]: " << points[i]
+    //           << "  phi value "  << function_value(middle_point)
+    //           << "  mapped points " << middle_point << std::endl;
   }
-
-  std::cout << std::endl;
+  // std::cout << std::endl;
 }
 
-
-
-template <int dim>
-void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
-                           std::vector<Tensor<1, dim>> &normal_vectors,
-                           std::vector<Tensor<1, dim>> &distance_vectors,
-                           const std::vector<Point<dim>> &points,
-                           int length,
-                           double c1,
-                           double c2,
-                           double h)
-{
-
-  for (int i = 0; i < length; ++i)
-  {
-    Point<dim> begin_point = points[i];
-    Tensor<1, dim> normal_vector = normal_vectors[i];
-    Point<dim> end_point = begin_point;
-    double phi;
-    do
-    {
-      end_point += h * normal_vector;
-      phi = pore_function_value(end_point, c1, c2);
-    }
-    while (phi < 0);
-
-    double tol = 1e-6;
-    double res;
-    Point<dim> middle_point = begin_point;
-
-    do
-    {
-      res = pore_function_value(middle_point, c1, c2);
-      if (res < 0)
-        begin_point = middle_point;
-      else
-        end_point = middle_point;
-      middle_point = (begin_point + end_point) / 2;
-    }
-    while (abs(res) > tol);
-
-    target_points[i] = middle_point;
-    distance_vectors[i] = target_points[i] - points[i];
-  }
-}
-
-
-template <int dim>
-void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
-                           std::vector<Tensor<1, dim>> &normal_vectors,
-                           std::vector<Tensor<1, dim>> &distance_vectors,
-                           const std::vector<Point<dim>> &points,
-                           int length,
-                           double h)
-{
-
-  for (int i = 0; i < length; ++i)
-  {
-    Point<dim> begin_point = points[i];
-    Tensor<1, dim> normal_vector = normal_vectors[i];
-    Point<dim> end_point = begin_point;
-    double phi;
-    do
-    {
-      end_point += h * normal_vector;
-      phi = torus_function_value(end_point);
-    }
-    while (phi < 0);
-
-    double tol = 1e-6;
-    double res;
-    Point<dim> middle_point = begin_point;
-
-    do
-    {
-      res = torus_function_value(middle_point);
-      if (res < 0)
-        begin_point = middle_point;
-      else
-        end_point = middle_point;
-      middle_point = (begin_point + end_point) / 2;
-    }
-    while (abs(res) > tol);
-
-    target_points[i] = middle_point;
-    distance_vectors[i] = target_points[i] - points[i];
-  }
-}
 
 // template<int dim>
 void vec2num_values(std::vector<Vector<double> > &vec,

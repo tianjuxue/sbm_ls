@@ -163,26 +163,35 @@ void NonlinearProblem<dim>::cache_interface()
           for (unsigned int q = 0; q < n_face_q_points; ++q)
             normal_vectors[q] = fe_values_face.normal_vector(q);
 
+          std::function<double(const Point<dim> &)> function_value;
+          std::function<Tensor<1, dim>(const Point<dim> &)> function_gradient;
+
           if (case_flag == PORE_CASE)
           {
-            if (map_choice == MAP_NEWTON)
-              sbm_map_newton(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, c1, c2);
-            else
-              sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, c1, c2, h);
+            // Like functools.partial in Python
+            function_value = std::bind(pore_function_value<dim>, std::placeholders::_1, c1, c2);
+            function_gradient = std::bind(pore_function_gradient<dim>, std::placeholders::_1, c1, c2);
           }
           else if (case_flag == TORUS_CASE)
           {
-            if (map_choice == MAP_NEWTON)
-              sbm_map_newton(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points);
-            else
-              sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, h);
+            function_value = torus_function_value<dim>;
+            function_gradient = torus_function_gradient<dim>;
           }
           else if (case_flag == FEM_CASE)
           {
-            if (map_choice == MAP_NEWTON)
-              sbm_map_newton(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution);
-            else
-              sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, dof_handler, old_solution, h);
+            // Using FEFieldFunction can be faster than functions defined under VectorTools (e.g., point_value)
+            // See https://www.dealii.org/current/doxygen/deal.II/namespaceVectorTools.html#acd358e9b110ccbf4a7f76796d206b9c7
+            // phi = VectorTools::point_value(dof_handler, solution, target_point);
+            // grad_phi = VectorTools::point_gradient(dof_handler, solution, target_point);
+            Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
+ 
+            // The following will throw an error: "invalid use of non-static member function"
+            // function_value = fe_field_function.value;
+            // function_gradient = fe_field_function.gradient;
+
+            // C++ lambda functions
+            function_value = [&fe_field_function](const Point<dim> &point) {return fe_field_function.value(point);};
+            function_gradient = [&fe_field_function](const Point<dim> &point) {return fe_field_function.gradient(point);};
           }
           else if (case_flag == IMAGE_CASE)
           {
@@ -192,6 +201,11 @@ void NonlinearProblem<dim>::cache_interface()
           {
             assert(0 && "case_flag should only be 0, 1 or 2");
           }
+
+          if (map_choice == MAP_NEWTON)
+            sbm_map_newton(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, function_value, function_gradient);
+          else
+            sbm_map_binary_search(target_points, normal_vectors, distance_vectors, quadrature_points, n_face_q_points, h, function_value);
 
           for (unsigned int q = 0; q < n_face_q_points; ++q)
           {
@@ -430,7 +444,7 @@ void NonlinearProblem<dim>::setup_system()
 
   std::cout << "  Strat grid" << std::endl;
 
-  GridGenerator::hyper_cube(triangulation, -2, 2);
+  GridGenerator::hyper_cube(triangulation, -DOMAIN_SIZE, DOMAIN_SIZE);
   triangulation.refine_global(refinement_level);
 
   narrow_band_helper(dof_handler, refinement_level);

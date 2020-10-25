@@ -7,12 +7,12 @@ np.set_printoptions(threshold=sys.maxsize, linewidth=1000, suppress=True)
 np.set_printoptions(precision=5)
 np.random.seed(1)
 
+DIM = 3
 DOMAIN_SIZE = 2
 REFERENCE_SIZE = 1
 DIVISION = 2
-# K = 26  # number of divergence-free functions
-K = 11
 surface = 'sphere'
+ORDER = 1
 
 def torus2(x, y, z):
     value = 2*y*(y**2 - 3*x**2)*(1 - z**2) + (x**2 + y**2)**2 - (9*z**2 - 1)*(1 - z**2)
@@ -55,22 +55,21 @@ def quad_points_volume(density=4):
     return np.asarray(quad_points)
 
 def quad_points_surface(density=8):
-    dim = 3
     num_direction = 2
     step = 2 * REFERENCE_SIZE / density
     weight = np.power(2 * REFERENCE_SIZE, 2) / np.power(density, 2)
     points_collection = []
     normal_vectors = []
-    for d in range(dim):
+    for d in range(DIM):
         for r in range(num_direction):
-            quad_points = np.zeros((np.power(density, 2), dim))
+            quad_points = np.zeros((np.power(density, 2), DIM))
             for i in range(density):
                 for j in range(density):
                     quad_points[i * density + j, d] = (2 * r - 1) * REFERENCE_SIZE
-                    quad_points[i * density + j, (d + 1) % dim] = -REFERENCE_SIZE + step / 2. + i * step
-                    quad_points[i * density + j, (d + 2) % dim] = -REFERENCE_SIZE + step / 2. + j * step
+                    quad_points[i * density + j, (d + 1) % DIM] = -REFERENCE_SIZE + step / 2. + i * step
+                    quad_points[i * density + j, (d + 2) % DIM] = -REFERENCE_SIZE + step / 2. + j * step
             points_collection.append(quad_points)
-            normal_vector = np.zeros(dim)
+            normal_vector = np.zeros(DIM)
             normal_vector[d] = (2 * r - 1) * REFERENCE_SIZE
             normal_vectors.append(normal_vector)
     return np.asarray(points_collection), np.asarray(normal_vectors), weight
@@ -84,8 +83,15 @@ def divergence_free_functions(ref_point):
     f2 = np.array([[z*z, 0., 0.], [0., z*z, 0.], [y*z, 0., 0.], [0., 2*y*z, -z*z], [y*y, 0., 0.], [0., y*y, -2*y*z], [0., 0., y*y], 
                    [2*x*z, 0, -z*z], [0., x*z, 0.], [x*y, 0., -y*z], [0, x*y, -x*z], [0., 0., x*y], [x*x, 0., -2*x*z], [0, x*x, 0], [0., 0., x*x]])
 
-    function_collection = np.concatenate((f0, f1), axis=0)
-   
+    if ORDER == 0:
+        function_collection = f0
+    elif ORDER == 1:
+        function_collection = np.concatenate((f0, f1), axis=0)
+    elif ORDER == 2:
+        function_collection = np.concatenate((f0, f1, f2), axis=0)
+    else:
+        assert 0
+
     return function_collection
 
 
@@ -209,7 +215,7 @@ def point_c_and_scale(element_id, base):
     return point_c, scale
 
 
-def recursive():
+def generate_cut_elements():
     start_refinement_level = 6
     end_refinement_level = 9
     start_base = np.power(DIVISION, start_refinement_level)
@@ -243,56 +249,36 @@ def main():
     total_ids = data['ids']
     total_refinement_levels = data['refinement_level']
     
-    index = 0
+    index = 1
     ids_cut = total_ids[index]
     refinement_level = total_refinement_levels[index]
     base = np.power(DIVISION, refinement_level)
     h = 2 * DOMAIN_SIZE / base
 
-    print(len(ids_cut))
-    print(len(ids_cut) * np.power(h, 2))
+    print("refinement_level is {} with h being {}, number of elements cut is {}".format(refinement_level, h, len(ids_cut)))
 
     ground_truth = 4 * np.pi
     hmf_result = 0
 
+    if ORDER == 0:
+        K = 3 # number of divergence-free functions
+    elif ORDER == 1:
+        K = 11
+    elif ORDER == 2:
+        K = 26
+    else:
+        assert 0
+
+    quad_points_to_save = []
+    weights_to_save = []
+
     for ele in range(0, len(ids_cut)):
+    # for ele in range(0, 3):
         element_id = ids_cut[ele]
 
         point_c, scale = point_c_and_scale(element_id, base)
-        q_points_v = quad_points_volume(3)
+        q_points_v = quad_points_volume(ORDER + 2)
         q_points_s, normal_vectors_s, weight_s = quad_points_surface(8)
-
-        # id_x, id_y, id_z = to_id_xyz(element_id, base)
-        # vertices = get_vertices(id_x, id_y, id_z, h)
-        # print(vertices)
-        # for i, physical_point_v in enumerate(vertices):
-        #     print(physical_point_v)
-        #     # physical_point = to_physical(q_point_v, point_c, scale)
-
-        #     print("norm of physical_point {}".format(np.linalg.norm(physical_point_v)))
-        #     print(level_set(physical_point_v))
-        #     print("\n")
-
-        # print(is_cut(vertices))
-
-        # num_positive = 0
-        # num_negative = 0
-        # for sub_q_points_s in q_points_s:
-        #     # print("\n")
-        #     for point_s in sub_q_points_s:
-        #         physical_point = to_physical(point_s, point_c, scale)
-        #         # print("norm of physical_point {}".format(np.linalg.norm(physical_point)))
-        #         print(physical_point)
-        #         # print(level_set(physical_point))
-        #         print(point_s)
-        #         if level_set(physical_point) > 0:
-        #             num_positive += 1
-        #         else:
-        #             num_negative += 1
-        #         # print("\n")
-
-        # print("num_positive = {}, num_negative = {}".format(num_positive, num_negative))
-        # exit()
 
         N = len(q_points_v)
         A = np.zeros((K, N))
@@ -326,13 +312,18 @@ def main():
         # print("\n")
         hmf_result += np.sum(quad_weights) * np.power(scale, 2)
         print("Progress {:.5f}%, contribution {:.5f}, current hmf_result is {:.5f}, and gt is {:.5f}".format((ele + 1)/len(ids_cut)*100,
-                                                                                                          np.sum(quad_weights), hmf_result, ground_truth))
+                                                                                                          np.sum(quad_weights), hmf_result, ground_truth)) 
+        quad_points_to_save.append(to_physical(q_points_v, point_c, scale))
+        weights_to_save.append(quad_weights * np.power(scale, 2))
 
-        # if ele/len(total_ids[-index]) >= 0.1:
-        #     break
+    np.savetxt('data/dat/surface_integral/{}_quads.dat'.format(surface), np.asarray(quad_points_to_save).reshape(-1, DIM))
+    np.savetxt('data/dat/surface_integral/{}_weights.dat'.format(surface), np.asarray(weights_to_save).reshape(-1))
 
+    print("Error is {:.5f}".format(hmf_result - ground_truth))
 
 if __name__ == '__main__':
-    # recursive()
+    # generate_cut_elements()
     # brute_force(np.power(DIVISION, 6))
-    main()
+    # main()
+
+    print(np.sum(np.loadtxt('data/dat/surface_integral/{}_weights.dat'.format(surface))))

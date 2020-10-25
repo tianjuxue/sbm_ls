@@ -122,9 +122,9 @@ int main ()
       unsigned int refinement_level = 5;
       unsigned int refinement_increment = 0;
       unsigned int band_width = 1;
-      // NonlinearProblem<2> problem(PORE_CASE, GLOBAL, refinement_level, refinement_increment, band_width, MAP_NEWTON, 4);
+      NonlinearProblem<2> problem(PORE_CASE, GLOBAL, refinement_level, refinement_increment, band_width, MAP_NEWTON, 4);
       // NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 5, MAP_NEWTON);
-      NonlinearProblem<3> problem(TORUS_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
+      // NonlinearProblem<3> problem(TORUS_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
       problem.run();
     }
     else
@@ -161,8 +161,8 @@ int main ()
         std::vector<double> error_list_newton;
         std::vector<double> error_list_bs;
 
-        std::string newton_dat_filename = "../data/dat/pore_" + Utilities::int_to_string(i, 1) + "_newton.dat";
-        std::string bs_dat_filename = "../data/dat/pore_" + Utilities::int_to_string(i, 1) + "_bs.dat";
+        std::string newton_dat_filename = "../data/dat/convergence/pore_" + Utilities::int_to_string(i, 1) + "_newton.dat";
+        std::string bs_dat_filename = "../data/dat/convergence/pore_" + Utilities::int_to_string(i, 1) + "_bs.dat";
 
         std::ofstream newton_dat_file;
         std::ofstream bs_dat_file;

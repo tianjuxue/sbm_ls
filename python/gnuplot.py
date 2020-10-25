@@ -18,8 +18,8 @@ def convergence_plot_multiplot(error_flag):
 
     total_pore_number = 9
     for i in range(total_pore_number):
-        newton_file_name = '"data/dat/pore_' + str(i) + '_newton.dat"'
-        bs_file_name = '"data/dat/pore_' + str(i) + '_bs.dat"'
+        newton_file_name = '"data/dat/convergence/pore_' + str(i) + '_newton.dat"'
+        bs_file_name = '"data/dat/convergence/pore_' + str(i) + '_bs.dat"'
         gp.c('plot ' + newton_file_name + ' u 1:' + str(error_flag) + ' title "newton" lc "blue" pt 5 ps 1 lt 1 lw 1 , '
              + bs_file_name + ' u 1:' + str(error_flag) + ' title "bs" lc "red" pt 7 ps 1 lt 1 lw 1')
         # point_type point_size line_width
@@ -55,8 +55,8 @@ def convergence_plot_single(pore_number, error_flag):
     # gp.c('set bmargin 0')
     # gp.c('set tmargin 0')
 
-    newton_file_name = 'data/dat/pore_{}_newton.dat'.format(pore_number)
-    bs_file_name = 'data/dat/pore_{}_bs.dat'.format(pore_number)
+    newton_file_name = 'data/dat/convergence/pore_{}_newton.dat'.format(pore_number)
+    bs_file_name = 'data/dat/convergence/pore_{}_bs.dat'.format(pore_number)
     newton_array = np.loadtxt(newton_file_name)
     bs_array = np.loadtxt(bs_file_name)
     h_ratio = np.log((newton_array[0, 0] / newton_array[-1, 0]))

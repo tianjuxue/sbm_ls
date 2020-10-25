@@ -3,7 +3,7 @@
 
 enum field
 {
-  PORE_CASE, TORUS_CASE, FEM_CASE, IMAGE_CASE
+  PORE_CASE, TORUS_CASE, SPHERE_CASE, FEM_CASE, IMAGE_CASE
 };
 
 enum band
@@ -28,5 +28,6 @@ enum solver
 
 unsigned int CIRCLE_PORE = 4; // Circular pore has analytical solutions, so we specially highlight it
 
+double DOMAIN_SIZE = 2;
 
 #endif
