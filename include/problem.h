@@ -498,7 +498,6 @@ void NonlinearProblem<dim>::setup_system()
   system_matrix.reinit(sparsity_pattern);
 
   h = GridTools::minimal_cell_diameter(triangulation);
-  // h = 4 / pow(2, refinement_level + refinement_increment);
   std::cout << "  General info: " << vector_filename << std::endl;
   std::cout << "  Mesh info: " << "h " << h << ", which should be "
             << 4 / pow(2, refinement_level + refinement_increment) * sqrt(dim) << std::endl;
@@ -507,7 +506,7 @@ void NonlinearProblem<dim>::setup_system()
 
   if (case_flag == PORE_CASE)
   {
-    // pore_number can't be of "unsigned int" type, otherwise overflow
+    // pore_number can't be of "unsigned int" type, otherwise causing overflow
     c1 = ((pore_number / 3) - 1) * 0.2;
     c2 = ((pore_number % 3) - 1) * 0.2;
     std::cout << "  Pore inf: c1 = " << c1 << ", c2 = " << c2 << std::endl;
@@ -893,8 +892,8 @@ void NonlinearProblem<dim>::error_analysis()
   SD_error = compute_SD_error(dof_handler, solution, fe_collection, q_collection);
   std::cout << "  Finish computing SD_error: " << SD_error << std::endl;
 
-  std::string quads_dat_filename = "../data/dat/surface_integral/case_" + Utilities::int_to_string(case_flag, 1) + "_quads.dat";
-  std::string weights_dat_filename = "../data/dat/surface_integral/case_" + Utilities::int_to_string(case_flag, 1) + "_weights.dat";
+  std::string quads_dat_filename = "../data/dat/surface_integral/sbi_case_" + Utilities::int_to_string(case_flag, 1) + "_quads.dat";
+  std::string weights_dat_filename = "../data/dat/surface_integral/sbi_case_" + Utilities::int_to_string(case_flag, 1) + "_weights.dat";
 
   if (case_flag == PORE_CASE)
   {
@@ -908,8 +907,8 @@ void NonlinearProblem<dim>::error_analysis()
   }
   else if (case_flag == SPHERE_CASE)
   {
-    // interface_error = compute_interface_error_sphere(dof_handler, solution);
-    interface_error = compute_interface_error_hmf(dof_handler, solution, quads_dat_filename, weights_dat_filename);
+    interface_error = compute_interface_error_sphere(dof_handler, solution);
+    // interface_error = compute_interface_error_hmf(dof_handler, solution, quads_dat_filename, weights_dat_filename);
   }
 
   std::string vtk_filename = "../data/vtk/case_" + Utilities::int_to_string(case_flag, 1) +

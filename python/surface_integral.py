@@ -13,6 +13,7 @@ REFERENCE_SIZE = 1
 DIVISION = 2
 surface = 'sphere'
 ORDER = 1
+NUM_DIRECTIONS = 2
 
 def torus2(x, y, z):
     value = 2*y*(y**2 - 3*x**2)*(1 - z**2) + (x**2 + y**2)**2 - (9*z**2 - 1)*(1 - z**2)
@@ -55,13 +56,12 @@ def quad_points_volume(density=4):
     return np.asarray(quad_points)
 
 def quad_points_surface(density=8):
-    num_direction = 2
     step = 2 * REFERENCE_SIZE / density
     weight = np.power(2 * REFERENCE_SIZE, 2) / np.power(density, 2)
     points_collection = []
     normal_vectors = []
     for d in range(DIM):
-        for r in range(num_direction):
+        for r in range(NUM_DIRECTIONS):
             quad_points = np.zeros((np.power(density, 2), DIM))
             for i in range(density):
                 for j in range(density):
@@ -190,7 +190,8 @@ def brute_force(base):
         for id_y in range(base):
             for id_z in range(base):
                 vertices = get_vertices(id_x, id_y, id_z, h)
-                if is_cut(vertices):
+                cut_flag, _, _ = is_cut(vertices)
+                if cut_flag:
                     ids_cut.append(to_id(id_x, id_y, id_z, base))
 
     return ids_cut
@@ -201,11 +202,12 @@ def is_cut(vertices):
     positive_flag = False
     for vertice in vertices:
         value = level_set(vertice)
-        if value > 0:
+        if value >= 0:
             positive_flag = True
-        elif value < 0:
+        else:
             negative_flag = True
-    return negative_flag and positive_flag
+    return negative_flag and positive_flag, negative_flag, positive_flag
+
 
 def point_c_and_scale(element_id, base):
     id_x, id_y, id_z = to_id_xyz(element_id, base)
@@ -233,7 +235,8 @@ def generate_cut_elements():
             sub_ids = breakout_id(element_id, base)
             for sub_id in sub_ids:
                 sub_id_x, sub_id_y, sub_id_z = to_id_xyz(sub_id, base * DIVISION)
-                if is_cut(get_vertices(sub_id_x, sub_id_y, sub_id_z, h / DIVISION)):
+                cut_flag, _, _ = is_cut(get_vertices(sub_id_x, sub_id_y, sub_id_z, h / DIVISION))
+                if cut_flag:
                     ids_cut_new.append(sub_id)
         ids_cut = ids_cut_new
         total_ids.append(ids_cut)
@@ -297,7 +300,7 @@ def main():
                     b[k] += -h_value * np.sum(functions_s[k] * normal_vector_s) * weight_s
 
         U, s, Vh = np.linalg.svd(A, full_matrices=True)
-        S = np.diag([np.power(1./sigma, 2) if sigma > 1e-1 else 0 for sigma in s])
+        S = np.diag([np.power(1./sigma, 2) if sigma > 1e-12 else 0 for sigma in s])
 
         B = np.matmul(np.matmul(U, S), np.transpose(U))
 
@@ -323,8 +326,8 @@ def main():
     print("Error is {:.5f}".format(hmf_result - ground_truth))
 
 if __name__ == '__main__':
-    # generate_cut_elements()
+    generate_cut_elements()
     # brute_force(np.power(DIVISION, 6))
     # main()
 
-    print(np.sum(np.loadtxt('data/dat/surface_integral/{}_weights.dat'.format(surface))))
+    # print(np.sum(np.loadtxt('data/dat/surface_integral/case_{}_weights.dat'.format(2))))

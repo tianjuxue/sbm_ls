@@ -189,7 +189,7 @@ template <int dim>
 double compute_interface_error_hmf(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution,
                                    std::string &quads_dat_filename, std::string &weights_dat_filename)
 {
-  std::cout << "  quads_dat_filename: " << quads_dat_filename << " weights_dat_filename: " << weights_dat_filename << std::endl;
+  std::cout << "  quads_dat_filename: " << quads_dat_filename << " and weights_dat_filename: " << weights_dat_filename << std::endl;
   std::ifstream input_quads_file(quads_dat_filename);
   std::ifstream input_weights_file(weights_dat_filename);
   std::vector<Point<dim>> quad_points;

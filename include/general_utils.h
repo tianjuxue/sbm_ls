@@ -136,7 +136,10 @@ void sphere_function(std::vector<double> &u, const std::vector<Point<dim>> &poin
 template <int dim>
 double cross_product_norm(const Tensor<1, dim> &t1, const Tensor<1, dim> &t2)
 {
-  return abs(t1[0] * t2[1] - t1[1] * t2[0]);
+  if (dim == 2)
+    return abs(t1[0] * t2[1] - t1[1] * t2[0]);
+  else
+    return sqrt(pow(t1[1] * t2[2] - t1[2] * t2[1], 2) + pow(t1[0] * t2[2] - t1[2] * t2[0], 2) + pow(t1[0] * t2[1] - t1[1] * t2[0], 2));
 }
 
 
