@@ -36,12 +36,13 @@ double pore_function_value(const Point<dim> &point, double c1, double c2)
 
 
 template <int dim>
-double torus_function_value(const Point<dim> &point)
+double star_function_value(const Point<dim> &point)
 {
   double x = point[0];
   double y = point[1];
-  double z = point[2];
-  double value  = 2 * y * (pow(y, 2) - 3 * pow(x, 2)) * (1 - pow(z, 2)) + pow((pow(x, 2) + pow(y, 2)), 2) - (9 * pow(z, 2) - 1) * (1 - pow(z, 2));
+  double theta = atan2(y, x);
+  double r_square = pow(x, 2) + pow(y, 2);
+  double value =  r_square - (1 + 0.2 * sin(6 * theta));
   return value;
 }
 
@@ -53,6 +54,17 @@ double sphere_function_value(const Point<dim> &point)
   double y = point[1];
   double z = point[2];
   double value  = pow(x, 2) + pow(y, 2) + pow(z, 2) - 1;
+  return value;
+}
+
+
+template <int dim>
+double torus_function_value(const Point<dim> &point)
+{
+  double x = point[0];
+  double y = point[1];
+  double z = point[2];
+  double value  = 2 * y * (pow(y, 2) - 3 * pow(x, 2)) * (1 - pow(z, 2)) + pow((pow(x, 2) + pow(y, 2)), 2) - (9 * pow(z, 2) - 1) * (1 - pow(z, 2));
   return value;
 }
 
@@ -74,17 +86,17 @@ Tensor<1, dim> pore_function_gradient(const Point<dim> &point, double c1, double
 
 
 // Mathematica code
-//  Grad[2*y*(y^2 - 3*x^2)*(1 - z^2) + (x^2 + y^2)^2 - (9*z^2 - 1)*(1 - z^2)), {x, y, z}]
+// Grad[x^2 + y^2 - (1 + 0.2 * Sin[6*ArcTan[y/x]]), {x, y}]
 template <int dim>
-Tensor<1, dim> torus_function_gradient(const Point<dim> &point)
+Tensor<1, dim> star_function_gradient(const Point<dim> &point)
 {
   double x = point[0];
   double y = point[1];
-  double z = point[2];
+  double theta = atan2(y, x);
+  double r_square = pow(x, 2) + pow(y, 2);
   Tensor<1, dim> gradient;
-  gradient[0] = 4 * x * (pow(x, 2) + pow(y, 2)) - 12 * x * y * (1 -  pow(z, 2));
-  gradient[1] = 2 * (1 - pow(z, 2)) * (pow(y, 2) - 3 * pow(x, 2)) + 4 * y * (pow(x, 2) + pow(y, 2)) + 4 * pow(y, 2) * (1 - pow(z, 2));
-  gradient[2] = -4 * y * z * (pow(y, 2) - 3 * pow(x, 2)) - 18 * (1 - pow(z, 2)) * z + 2 * (9 * pow(z, 2) - 1) * z;
+  gradient[0] =  1.2 * y * cos(6 * theta) / r_square + 2 * x;
+  gradient[1] =  -1.2 * x * cos(6 * theta) / r_square + 2 * y;
   return gradient;
 }
 
@@ -102,6 +114,21 @@ Tensor<1, dim> sphere_function_gradient(const Point<dim> &point)
   return gradient;
 }
 
+// Mathematica code
+//  Grad[2*y*(y^2 - 3*x^2)*(1 - z^2) + (x^2 + y^2)^2 - (9*z^2 - 1)*(1 - z^2)), {x, y, z}]
+template <int dim>
+Tensor<1, dim> torus_function_gradient(const Point<dim> &point)
+{
+  double x = point[0];
+  double y = point[1];
+  double z = point[2];
+  Tensor<1, dim> gradient;
+  gradient[0] = 4 * x * (pow(x, 2) + pow(y, 2)) - 12 * x * y * (1 -  pow(z, 2));
+  gradient[1] = 2 * (1 - pow(z, 2)) * (pow(y, 2) - 3 * pow(x, 2)) + 4 * y * (pow(x, 2) + pow(y, 2)) + 4 * pow(y, 2) * (1 - pow(z, 2));
+  gradient[2] = -4 * y * z * (pow(y, 2) - 3 * pow(x, 2)) - 18 * (1 - pow(z, 2)) * z + 2 * (9 * pow(z, 2) - 1) * z;
+  return gradient;
+}
+
 
 template <int dim>
 void pore_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length, double c1, double c2)
@@ -114,11 +141,11 @@ void pore_function(std::vector<double> &u, const std::vector<Point<dim>> &points
 
 
 template <int dim>
-void torus_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length)
+void star_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length)
 {
   for (int i = 0; i < length; ++i)
   {
-    u[i] = torus_function_value(points[i]);
+    u[i] = star_function_value(points[i]);
   }
 }
 
@@ -129,6 +156,16 @@ void sphere_function(std::vector<double> &u, const std::vector<Point<dim>> &poin
   for (int i = 0; i < length; ++i)
   {
     u[i] = sphere_function_value(points[i]);
+  }
+}
+
+
+template <int dim>
+void torus_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    u[i] = torus_function_value(points[i]);
   }
 }
 
@@ -263,6 +300,8 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
 }
 
 
+
+// Potentially useful functions
 // template<int dim>
 void vec2num_values(std::vector<Vector<double> > &vec,
                     std::vector<double >  &num, int length)
@@ -291,7 +330,6 @@ void vec2num_grads(std::vector< std::vector< Tensor<1, dim> >> &vec,
     }
   }
 }
-
 
 template <int dim>
 void set_support_points(hp::DoFHandler<dim> &dof_handler, std::vector<Point<dim>> &support_points)
@@ -338,137 +376,6 @@ void initialize_distance_field_circle(hp::DoFHandler<dim> &dof_handler, Vector<d
     solution(i) = radius - rel_pos.norm();
     // solution(i) *= pow(support_points[i][0] - 0.25, 2) +  pow(support_points[i][1] - 0.25, 2) + 0.1;
   }
-}
-
-
-double min_multiple(std::vector<double> &v)
-{
-  double temp = v[0];
-  for (unsigned int i = 0; i < v.size(); i++) {
-    if (temp > v[i])
-    {
-      temp = v[i];
-    }
-  }
-  return temp;
-}
-
-
-template <int dim>
-double signed_distance_square(Point<dim> &point, const Point<dim> &center, double side_length)
-{
-  Tensor<1, dim> rel_pos = point - center;
-
-  double half_side = side_length / 2.;
-  double upper_left_corner_dist  = sqrt(pow(rel_pos[0] + half_side, 2) + pow(rel_pos[1] - half_side, 2));
-  double upper_right_corner_dist = sqrt(pow(rel_pos[0] - half_side, 2) + pow(rel_pos[1] - half_side, 2));
-  double lower_left_corner_dist  = sqrt(pow(rel_pos[0] + half_side, 2) + pow(rel_pos[1] + half_side, 2));
-  double lower_right_corner_dist = sqrt(pow(rel_pos[0] - half_side, 2) + pow(rel_pos[1] + half_side, 2));
-  double left_side_dist  = abs(rel_pos[0] + half_side);
-  double right_side_dist = abs(rel_pos[0] - half_side);
-  double upper_side_dist = abs(rel_pos[1] - half_side);
-  double lower_side_dist = abs(rel_pos[1] + half_side);
-  std::vector<double> v_corners{upper_left_corner_dist, upper_right_corner_dist, lower_left_corner_dist, lower_right_corner_dist};
-  std::vector<double> v_sides{left_side_dist, right_side_dist, upper_side_dist, lower_side_dist};
-
-  double dist;
-  if ((rel_pos[0] > half_side  & rel_pos[1] > half_side)  ||
-      (rel_pos[0] > half_side  & rel_pos[1] < -half_side) ||
-      (rel_pos[0] < -half_side & rel_pos[1] > half_side)  ||
-      (rel_pos[0] < -half_side & rel_pos[1] < -half_side))
-    dist = min_multiple(v_corners);
-  else if (rel_pos[0] > half_side)
-    dist = right_side_dist;
-  else if (rel_pos[0] < -half_side)
-    dist = left_side_dist;
-  else if (rel_pos[1] > half_side)
-    dist = upper_side_dist;
-  else if (rel_pos[1] < -half_side)
-    dist = lower_side_dist;
-  else
-    dist = min_multiple(v_sides);
-
-  double sign = rel_pos[0] < half_side & rel_pos[0] > -half_side & rel_pos[1] < half_side & rel_pos[1] > -half_side ? 1. : -1.;
-
-  return sign * dist;
-}
-
-
-template <int dim>
-void initialize_distance_field_square(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, const Point<dim> &center, double side_length)
-{
-  std::vector<Point<dim>> support_points(dof_handler.n_dofs());
-  set_support_points(dof_handler, support_points);
-  for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
-  {
-    solution(i) = signed_distance_square(support_points[i], center, side_length);
-    // solution(i) *= pow(support_points[i][0] - 1, 2) +  pow(support_points[i][1] - 1, 2) + 0.1;
-  }
-}
-
-
-template <int dim>
-void initialize_distance_field_linear(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution)
-{
-  std::vector<Point<dim>> support_points(dof_handler.n_dofs());
-  set_support_points(dof_handler, support_points);
-  for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
-  {
-    solution(i) = support_points[i][0] + support_points[i][1];
-  }
-}
-
-
-template <int dim>
-void initialize_distance_field_quadratic(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution, const Point<dim> &center)
-{
-  std::vector<Point<dim>> support_points(dof_handler.n_dofs());
-  set_support_points(dof_handler, support_points);
-  for (unsigned int i = 0; i < dof_handler.n_dofs(); i++)
-  {
-    Tensor<1, dim> rel_pos = support_points[i] - center;
-    solution(i) = 0.25 - rel_pos[0] * rel_pos[0] - rel_pos[1] * rel_pos[1];
-  }
-}
-
-
-template <int dim>
-void reinitialize_distance_field(hp::DoFHandler<dim> &dof_handler,
-                                 Vector<double> &old_solution,
-                                 Vector<double> &solution,
-                                 const int FLAG_BAND)
-{
-  unsigned int length = dof_handler.n_dofs();
-  std::vector<Point<dim>> support_points(length);
-  set_support_points(dof_handler, support_points);
-
-  std::vector<types::global_dof_index> local_dof_indices;
-  typename hp::DoFHandler<dim>::active_cell_iterator
-  cell = dof_handler.begin_active(),
-  endc = dof_handler.end();
-  for (; cell != endc; ++cell)
-  {
-    if (cell->material_id() == FLAG_BAND)
-    {
-      unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
-      local_dof_indices.resize(dofs_per_cell);
-      cell->get_dof_indices(local_dof_indices);
-      for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
-      {
-        int global_index = local_dof_indices[i];
-        unsigned int unit = 1;
-        std::vector<Point<dim>> target_points(unit);
-        std::vector<Tensor<1, dim> > normal_vectors(unit);
-        std::vector<Tensor<1, dim> > distance_vectors(unit);
-        std::vector<Point<dim>> points;
-        points.push_back(support_points[global_index]);
-
-        sbm_map(target_points, normal_vectors, distance_vectors, points, unit, dof_handler, old_solution);
-        solution(global_index) = normal_vectors[0] * distance_vectors[0];
-      }
-    }
-  }
-
 }
 
 

@@ -12,7 +12,8 @@ public:
                    unsigned int refinement_increment_ = 1,
                    unsigned int band_width_ = 1,
                    unsigned int map_choice_ = MAP_NEWTON,
-                   int pore_number_ = CIRCLE_PORE);
+                   int pore_number_ = CIRCLE_PORE,
+                   unsigned int constraint_type_ = TRIVIAL_CONSTRAINT);
   ~NonlinearProblem();
   void run();
   void error_analysis();
@@ -20,10 +21,11 @@ public:
   void output_vtk(std::string &filename);
   void output_binary();
   double h;
-  double L_inf_error;
+  double L_infty_error;
   double L2_error;
   double SD_error;
-  double interface_error;
+  double interface_error_parametric;
+  double interface_error_qw;
 
 private:
   void cache_interface();
@@ -56,7 +58,7 @@ private:
   std::vector<unsigned int> dof_flags;
 
   double alpha;
-  unsigned int solver_type;
+  unsigned int constraint_type;
   double c1;
   double c2;
   unsigned int domain_flag;
@@ -79,15 +81,17 @@ NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
                                         unsigned int refinement_increment_,
                                         unsigned int band_width_ ,
                                         unsigned int map_choice_,
-                                        int pore_number_)
+                                        int pore_number_,
+                                        unsigned int constraint_type_)
   :
-  L_inf_error(0.),
+  L_infty_error(0.),
   L2_error(0.),
   SD_error(0.),
-  interface_error(0.),
+  interface_error_parametric(0.),
+  interface_error_qw(0.),
   dof_handler(triangulation),
   alpha(1e1), // Magic number, may affect numerical instability, 1e1 for 2D
-  solver_type(DISTANCE_SOLVER),
+  constraint_type(constraint_type_),
   c1(0.),
   c2(0.),
   domain_flag(domain_flag_),
@@ -177,15 +181,20 @@ void NonlinearProblem<dim>::cache_interface()
             function_value = std::bind(pore_function_value<dim>, std::placeholders::_1, c1, c2);
             function_gradient = std::bind(pore_function_gradient<dim>, std::placeholders::_1, c1, c2);
           }
-          else if (case_flag == TORUS_CASE)
+          else if (case_flag == STAR_CASE)
           {
-            function_value = torus_function_value<dim>;
-            function_gradient = torus_function_gradient<dim>;
+            function_value = star_function_value<dim>;
+            function_gradient = star_function_gradient<dim>;
           }
           else if (case_flag == SPHERE_CASE)
           {
             function_value = sphere_function_value<dim>;
             function_gradient = sphere_function_gradient<dim>;
+          }
+          else if (case_flag == TORUS_CASE)
+          {
+            function_value = torus_function_value<dim>;
+            function_gradient = torus_function_gradient<dim>;
           }
           else if (case_flag == FEM_CASE)
           {
@@ -240,32 +249,43 @@ void NonlinearProblem<dim>::cache_interface()
 template <int dim>
 void NonlinearProblem<dim>::make_constraints()
 {
+  assert( !(domain_flag == GLOBAL && constraint_type == POISSON_CONSTRAINT) &&
+          "Error: when using laplace smoothing with POISSON_CONSTRAINT, domain_flag can't be set to GLOBAL!");
   dof_flags.clear();
   unsigned int tmp_flag = 100; // An arbitrary number
   dof_flags.insert(dof_flags.end(), dof_handler.n_dofs(), tmp_flag);
 
-  if (solver_type == POISSON_BAND_SOLVER)
+  if (constraint_type == POISSON_CONSTRAINT)
   {
     std::vector<types::global_dof_index> local_dof_indices;
-    for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
-         cell != dof_handler.end(); ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
     {
-      unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
-      local_dof_indices.resize(dofs_per_cell);
-      cell->get_dof_indices(local_dof_indices);
-      for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
+      if (cell->active_fe_index() == 0)
       {
-        if (cell->material_id() == FLAG_IN)
+        for (unsigned int face_no = 0; face_no < GeometryInfo<dim>::faces_per_cell; ++face_no)
         {
-          dof_flags[local_dof_indices[i]] = FLAG_IN;
-        }
-        else if ((cell->material_id() == FLAG_OUT))
-        {
-          dof_flags[local_dof_indices[i]] = FLAG_OUT;
+          if (!cell->face(face_no)->at_boundary())
+          {
+            if (cell->neighbor(face_no)->active_fe_index() == 1)
+            {
+              unsigned int dofs_per_face = cell->get_fe().dofs_per_face;
+              local_dof_indices.resize(dofs_per_face);
+              // Second argument: const unsigned int fe_index = DoFHandlerType::default_fe_index
+              cell->face(face_no)->get_dof_indices(local_dof_indices, 0);
+              for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
+              {
+                if (cell->neighbor(face_no)->material_id() == FLAG_IN)
+                  dof_flags[local_dof_indices[i]] = FLAG_IN;
+                else if (cell->neighbor(face_no)->material_id() == FLAG_OUT)
+                  dof_flags[local_dof_indices[i]] = FLAG_OUT;
+                else
+                  assert(0 && "Error: neighbor cell should only be either FLAG_IN or FLAG_OUT");
+              }
+            }
+          }
         }
       }
     }
-
     constraints.clear();
     for (unsigned int i = 0; i < dof_flags.size(); ++i)
     {
@@ -282,40 +302,7 @@ void NonlinearProblem<dim>::make_constraints()
     }
     constraints.close();
   }
-  else if (solver_type == DISTANCE_BAND_SOLVER)
-  {
-    std::vector<types::global_dof_index> local_dof_indices;
-    for (typename hp::DoFHandler<dim>::cell_iterator cell = dof_handler.begin_active();
-         cell != dof_handler.end(); ++cell)
-    {
-      unsigned int dofs_per_cell = cell->get_fe().dofs_per_cell;
-      local_dof_indices.resize(dofs_per_cell);
-      cell->get_dof_indices(local_dof_indices);
-      for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
-      {
-        if (cell->material_id() == FLAG_IN_BAND)
-        {
-          dof_flags[local_dof_indices[i]] = FLAG_IN_BAND;
-        }
-        else if ((cell->material_id() == FLAG_OUT_BAND))
-        {
-          dof_flags[local_dof_indices[i]] = FLAG_OUT_BAND;
-        }
-      }
-    }
-
-    constraints.clear();
-    for (unsigned int i = 0; i < dof_flags.size(); ++i)
-    {
-      if (dof_flags[i] == tmp_flag)
-      {
-        constraints.add_line(i);
-        constraints.set_inhomogeneity(i, solution(i));
-      }
-    }
-    constraints.close();
-  }
-  else if (solver_type == DISTANCE_SOLVER)
+  else
   {
     constraints.clear();
     // VectorTools::interpolate_boundary_values(dof_handler, 0, BoundaryValues<dim>(), constraints);
@@ -339,12 +326,17 @@ void NonlinearProblem<dim>::narrow_band_helper(hp::DoFHandler<dim> &dof_handler,
         double level_set_value;
         if (case_flag == PORE_CASE)
           level_set_value = pore_function_value(cell->vertex(v), c1, c2);
-        else if (case_flag == TORUS_CASE)
-          level_set_value = torus_function_value(cell->vertex(v));
+        else if (case_flag == STAR_CASE)
+          level_set_value = star_function_value(cell->vertex(v));
         else if (case_flag == SPHERE_CASE)
           level_set_value = sphere_function_value(cell->vertex(v));
+        else if (case_flag == TORUS_CASE)
+          level_set_value = torus_function_value(cell->vertex(v));
         else if (case_flag == FEM_CASE)
-          level_set_value = old_solution(cell->vertex_dof_index(v, 0, 0));
+        {
+          // To be implemented...
+          // level_set_value = solution(cell->vertex_dof_index(v, 0, 0));
+        }
         else if (case_flag == IMAGE_CASE)
           assert(0 && "Image case not implemented yet!");
         if (level_set_value >= 0)
@@ -478,17 +470,6 @@ void NonlinearProblem<dim>::setup_system()
   old_solution.reinit(dof_handler.n_dofs());
   system_rhs.reinit(dof_handler.n_dofs());
 
-  // if (case_flag == PORE_CASE)
-  //   initialize_pore(dof_handler, solution, c1, c2);
-  // else if (case_flag == TORUS_CASE)
-  //   initialize_torus(dof_handler, solution);
-  // else if (case_flag == FEM_CASE)
-  //   initialize_distance_field_circle(dof_handler, solution, Point<dim>(0., 0.), 1);
-
-  // old_solution = solution;
-  // output_cycle_vtk(0);
-
-
   DynamicSparsityPattern dsp(dof_handler.n_dofs());
   DoFTools::make_sparsity_pattern(dof_handler,
                                   dsp,
@@ -515,7 +496,8 @@ void NonlinearProblem<dim>::setup_system()
                       "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
                       "_" + Utilities::int_to_string(refinement_increment, 1) +
                       "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
-                      "_pore_" + Utilities::int_to_string(pore_number, 1);
+                      "_pore_" + Utilities::int_to_string(pore_number, 1) + 
+                      "_laplace_" + Utilities::int_to_string(constraint_type, 1);
   }
   else
   {
@@ -523,7 +505,8 @@ void NonlinearProblem<dim>::setup_system()
                       "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
                       "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
                       "_" + Utilities::int_to_string(refinement_increment, 1) +
-                      "_map_choice_" + Utilities::int_to_string(map_choice, 1);
+                      "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
+                      "_laplace_" + Utilities::int_to_string(constraint_type, 1);
   }
 
 
@@ -578,8 +561,6 @@ void NonlinearProblem<dim>::assemble_system_picard()
       fe_values.get_function_values(solution, solution_values);
       std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
       fe_values.get_function_gradients(solution, solution_gradients);
-
-      // std::cout << std::endl << std::endl;
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
@@ -670,7 +651,6 @@ void NonlinearProblem<dim>::assemble_system_picard()
 template <int dim>
 void NonlinearProblem<dim>::assemble_system_poisson()
 {
-
   system_matrix = 0;
   system_rhs    = 0;
 
@@ -708,7 +688,7 @@ void NonlinearProblem<dim>::assemble_system_poisson()
     local_rhs = 0;
     cell->get_dof_indices(local_dof_indices);
 
-    if (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND)
+    if (cell->active_fe_index() == 0)
     {
       std::vector<double> solution_values(n_q_points);
       fe_values.get_function_values(solution, solution_values);
@@ -785,13 +765,17 @@ void NonlinearProblem<dim>::assemble_system_projection()
       {
         pore_function(function_values, fe_values.get_quadrature_points(), n_q_points, c1, c2);
       }
-      else if (case_flag == TORUS_CASE)
+      else if (case_flag == STAR_CASE)
       {
-        torus_function(function_values, fe_values.get_quadrature_points(), n_q_points);
+        star_function(function_values, fe_values.get_quadrature_points(), n_q_points);
       }
       else if (case_flag == SPHERE_CASE)
       {
         sphere_function(function_values, fe_values.get_quadrature_points(), n_q_points);
+      }
+      else if (case_flag == TORUS_CASE)
+      {
+        torus_function(function_values, fe_values.get_quadrature_points(), n_q_points);
       }
       else
       {
@@ -837,7 +821,7 @@ void NonlinearProblem<dim>::solve_picard()
 
 
 template <int dim>
-void NonlinearProblem<dim>::output_vtk(std::string &filename)
+void NonlinearProblem<dim>::output_vtk(std::string & filename)
 {
   std::vector<std::string> solution_names;
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -889,7 +873,7 @@ void NonlinearProblem<dim>::error_analysis()
   input_solution_file.close();
 
   std::cout << "  Start computing SD_error..." << std::endl;
-  SD_error = compute_SD_error(dof_handler, solution, fe_collection, q_collection);
+  SD_error = compute_SD_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
   std::cout << "  Finish computing SD_error: " << SD_error << std::endl;
 
   std::string quads_dat_filename = "../data/dat/surface_integral/sbi_case_" + Utilities::int_to_string(case_flag, 1) + "_quads.dat";
@@ -897,18 +881,28 @@ void NonlinearProblem<dim>::error_analysis()
 
   if (case_flag == PORE_CASE)
   {
-    interface_error = compute_interface_error_pore(dof_handler, solution, c1, c2);
+    interface_error_parametric = compute_interface_error_pore(dof_handler, solution, c1, c2);
     if (pore_number == CIRCLE_PORE)
-      L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection);
+    {
+      L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
+      L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag);
+    }
   }
-  else if (case_flag == TORUS_CASE)
+  else if (case_flag == STAR_CASE)
   {
-    interface_error = compute_interface_error_hmf(dof_handler, solution, quads_dat_filename, weights_dat_filename);
+    //TODO: something like
+    // interface_error_parametric = compute_interface_error_pore(dof_handler, solution);
   }
   else if (case_flag == SPHERE_CASE)
   {
-    interface_error = compute_interface_error_sphere(dof_handler, solution);
-    // interface_error = compute_interface_error_hmf(dof_handler, solution, quads_dat_filename, weights_dat_filename);
+    interface_error_parametric = compute_interface_error_sphere(dof_handler, solution);
+    // interface_error_qw = compute_interface_error_qw(dof_handler, solution, quads_dat_filename, weights_dat_filename);
+    // L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
+    // L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag);
+  }
+  else if (case_flag == TORUS_CASE)
+  {
+    interface_error_qw = compute_interface_error_qw(dof_handler, solution, quads_dat_filename, weights_dat_filename);
   }
 
   std::string vtk_filename = "../data/vtk/case_" + Utilities::int_to_string(case_flag, 1) +
@@ -916,7 +910,8 @@ void NonlinearProblem<dim>::error_analysis()
                              "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
                              "_" + Utilities::int_to_string(refinement_increment, 1) +
                              "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
-                             "_pore_" + Utilities::int_to_string(pore_number, 1) + ".vtk";
+                             "_pore_" + Utilities::int_to_string(pore_number, 1) +
+                             "_laplace_" + Utilities::int_to_string(constraint_type, 1) + ".vtk";
   output_vtk(vtk_filename);
 }
 
@@ -945,35 +940,26 @@ void NonlinearProblem<dim>::run()
             << dof_handler.n_dofs()
             << std::endl;
 
-
-  solver_type = DISTANCE_SOLVER;
   make_constraints();
-  std::cout << "  Start to assemble system" << std::endl;
-  assemble_system_projection();
-  std::cout << "  End of assemble system" << std::endl;
-
+  if (domain_flag == NARROW_BAND && constraint_type == POISSON_CONSTRAINT)
+  {
+    std::cout << "  Start to assemble system for poisson" << std::endl;
+    assemble_system_poisson();
+    std::cout << "  End of assemble system" << std::endl;
+  }
+  else
+  {
+    std::cout << "  Start to assemble system for projection" << std::endl;
+    assemble_system_projection();
+    std::cout << "  End of assemble system" << std::endl;
+  }
   std::cout << "  Start to solve..." << std::endl;
   solve_picard();
   std::cout << "  End of solve" << std::endl;
-
-  old_solution = solution;
   output_cycle_vtk(0);
 
-  // if (domain_flag == NARROW_BAND)
-  // {
-  //   solver_type = POISSON_BAND_SOLVER;
-  //   make_constraints();
-  //   assemble_system_poisson();
-  //   solve_picard();
-  //   output_cycle_vtk(0);
-  //   solver_type = DISTANCE_BAND_SOLVER;
-  //   make_constraints();
-  // }
-  // else
-  // {
-  //   solver_type = DISTANCE_SOLVER;
-  //   make_constraints();
-  // }
+  constraint_type = TRIVIAL_CONSTRAINT;
+  make_constraints();
 
   unsigned int picard_step = 0;
   double res = 1e3;
@@ -999,7 +985,7 @@ void NonlinearProblem<dim>::run()
     // output_cycle_vtk(picard_step);
     output_cycle_vtk(1);
 
-    // double L2_error = compute_l2_error(dof_handler, solution, fe_collection, q_collection);
+    // double L2_error = compute_l2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
     // std::cout << "  L2 error is " << L2_error << std::endl;
   }
 

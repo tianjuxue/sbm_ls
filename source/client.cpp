@@ -112,19 +112,21 @@
 
 int main ()
 {
- 
+
   bool debug_mode = true;
-  bool run_mode = false;
+  bool run_mode = true;
   if (debug_mode)
   {
     if (run_mode)
     {
       unsigned int refinement_level = 5;
-      unsigned int refinement_increment = 1;
-      unsigned int band_width = 1;
-      // NonlinearProblem<2> problem(PORE_CASE, GLOBAL, refinement_level, refinement_increment, band_width, MAP_NEWTON, 4);
+      unsigned int refinement_increment = 2;
+      unsigned int band_width = 2;
+      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, refinement_level, refinement_increment,
+      //                             band_width, MAP_NEWTON, CIRCLE_PORE, POISSON_CONSTRAINT);
+      NonlinearProblem<2> problem(STAR_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
       // NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 5, MAP_NEWTON);
-      NonlinearProblem<3> problem(SPHERE_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
+      // NonlinearProblem<3> problem(SPHERE_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
       problem.run();
     }
     else
@@ -181,9 +183,9 @@ int main ()
           problem_binary_search.error_analysis();
 
           newton_dat_file << problem_newton.h << " " << problem_newton.L2_error << " "
-                          << problem_newton.SD_error << " " << problem_newton.interface_error << std::endl;
+                          << problem_newton.SD_error << " " << problem_newton.interface_error_parametric << std::endl;
           bs_dat_file << problem_binary_search.h <<  " " << problem_binary_search.L2_error << " "
-                      << problem_binary_search.SD_error << " " << problem_binary_search.interface_error << std::endl;
+                      << problem_binary_search.SD_error << " " << problem_binary_search.interface_error_parametric << std::endl;
         }
 
         // std::cout << std::endl << "--------------------------------------------------------" << std::endl;

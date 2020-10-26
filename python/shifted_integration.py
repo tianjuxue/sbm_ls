@@ -16,7 +16,7 @@ np.random.seed(1)
 DIM = 3
 DOMAIN_SIZE = 2
 DIVISION = 2
-surface = 'torus2'
+surface = 'sphere'
 QUAD_LEVEL = 3
 NUM_DIRECTIONS = 2
 
@@ -156,7 +156,7 @@ def main():
 
     print(np.sum(np.array(weights)))
 
-    case_no = 1 if surface == 'torus2' else 2
+    case_no = 2 if surface == 'sphere' else 3
     np.savetxt('data/dat/surface_integral/sbi_case_{}_quads.dat'.format(case_no), np.asarray(mapped_quad_points).reshape(-1, DIM))
     np.savetxt('data/dat/surface_integral/sbi_case_{}_weights.dat'.format(case_no), np.asarray(weights).reshape(-1))
 

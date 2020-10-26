@@ -4,6 +4,7 @@
 using namespace dealii;
 
 
+// Only a circle in the 2D case or a sphere in the 3D case has exact solutions
 template <int dim>
 void exact_solution(std::vector<double> &u_e, const std::vector<Point<dim>> &points, int length)
 {
@@ -18,13 +19,9 @@ template <int dim>
 double compute_L2_error(hp::DoFHandler<dim> &dof_handler,
                         Vector<double> &solution,
                         hp::FECollection<dim> &fe_collection,
-                        hp::QCollection<dim> &q_collection)
+                        hp::QCollection<dim> &q_collection,
+                        unsigned int domain_flag)
 {
-
-  // hp::QCollection<dim>    q_collection_custom;
-  // q_collection_custom.push_back(QGauss<dim>(2));
-  // q_collection_custom.push_back(QGauss<dim>(2));
-
   double l2_error_square = 0;
   hp::FEValues<dim> fe_values_hp (fe_collection, q_collection,
                                   update_values    |  update_gradients |
@@ -36,7 +33,7 @@ double compute_L2_error(hp::DoFHandler<dim> &dof_handler,
 
   for (; cell != endc; ++cell)
   {
-    if (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND)
+    if (cell->active_fe_index() == 0 || domain_flag == GLOBAL)
     {
       fe_values_hp.reinit (cell);
       const FEValues<dim> &fe_values = fe_values_hp.get_present_fe_values();
@@ -59,11 +56,58 @@ double compute_L2_error(hp::DoFHandler<dim> &dof_handler,
 }
 
 
+
+template <int dim>
+double compute_Linfty_error(hp::DoFHandler<dim> &dof_handler,
+                            Vector<double> &solution,
+                            hp::FECollection<dim> &fe_collection,
+                            unsigned int domain_flag)
+{
+
+  hp::QCollection<dim> q_collection_custom;
+  const QTrapez<1>     q_trapez;
+  const QIterated<dim> q_iterated(q_trapez, 3); // fe->degree * 2 + 1
+  q_collection_custom.push_back(q_iterated);
+  q_collection_custom.push_back(q_iterated);
+
+  double linfty_error = 0;
+  hp::FEValues<dim> fe_values_hp (fe_collection, q_collection_custom,
+                                  update_values    |  update_gradients |
+                                  update_quadrature_points  |  update_JxW_values);
+
+  typename hp::DoFHandler<dim>::active_cell_iterator
+  cell = dof_handler.begin_active(),
+  endc = dof_handler.end();
+
+  for (; cell != endc; ++cell)
+  {
+    if (cell->active_fe_index() == 0 || domain_flag == GLOBAL)
+    {
+      fe_values_hp.reinit (cell);
+      const FEValues<dim> &fe_values = fe_values_hp.get_present_fe_values();
+      const unsigned int &n_q_points = fe_values.n_quadrature_points;
+
+      std::vector<double> solution_values(n_q_points);
+      fe_values.get_function_values (solution, solution_values);
+      std::vector<double> u_exact(n_q_points);
+      exact_solution(u_exact, fe_values.get_quadrature_points(), n_q_points);
+
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        linfty_error = std::max(linfty_error, abs(solution_values[q] - u_exact[q]));
+      }
+    }
+  }
+  return linfty_error;
+}
+
+
 template <int dim>
 double compute_SD_error(hp::DoFHandler<dim> &dof_handler,
                         Vector<double> &solution,
                         hp::FECollection<dim> &fe_collection,
-                        hp::QCollection<dim> &q_collection)
+                        hp::QCollection<dim> &q_collection,
+                        unsigned int domain_flag)
 {
 
   double SD_error_square = 0;
@@ -77,7 +121,7 @@ double compute_SD_error(hp::DoFHandler<dim> &dof_handler,
 
   for (; cell != endc; ++cell)
   {
-    if (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND)
+    if (cell->active_fe_index() == 0 || domain_flag == GLOBAL)
     {
       fe_values_hp.reinit (cell);
       const FEValues<dim> &fe_values = fe_values_hp.get_present_fe_values();
@@ -135,10 +179,7 @@ template <int dim>
 double compute_interface_error_sphere(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution)
 {
   Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
-  double radius = 1.; // Hard coded, we don't change the radius throughout the work
 
-  // unsigned int num_intervals_theta = 2000;
-  // unsigned int num_intervals_phi = 1000;
   unsigned int num_intervals_theta = 2000;
   unsigned int num_intervals_phi = 1000;
 
@@ -151,11 +192,11 @@ double compute_interface_error_sphere(hp::DoFHandler<dim> &dof_handler, Vector<d
     {
       double quad_phi = (j + 1. / 2.) * M_PI / num_intervals_phi;
       Point<dim> quad_point;
-      quad_point[0] = radius * sin(quad_phi) * cos(quad_theta);
-      quad_point[1] = radius * sin(quad_phi) * sin(quad_theta);
-      quad_point[2] = radius * cos(quad_phi);
+      quad_point[0] = RADIUS * sin(quad_phi) * cos(quad_theta);
+      quad_point[1] = RADIUS * sin(quad_phi) * sin(quad_theta);
+      quad_point[2] = RADIUS * cos(quad_phi);
       quad_points.push_back(quad_point);
-      jacobians.push_back(pow(radius, 2) * sin(quad_phi));
+      jacobians.push_back(pow(RADIUS, 2) * sin(quad_phi));
     }
   }
 
@@ -177,17 +218,19 @@ double compute_interface_error_sphere(hp::DoFHandler<dim> &dof_handler, Vector<d
     }
   }
 
-  std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(radius, 2) << std::endl;
+  std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(RADIUS, 2) << std::endl;
   std::cout << "  surface_integral is " << surface_integral << std::endl;
   return surface_integral;
 }
 
 
+// Use pre-defined quadratures and weights to compute error
 // Moment fitting method to compute interface error
 // Reference: https://onlinelibrary.wiley.com/doi/abs/10.1002/nme.4569
+// Or shifted bounday integration scheme
 template <int dim>
-double compute_interface_error_hmf(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution,
-                                   std::string &quads_dat_filename, std::string &weights_dat_filename)
+double compute_interface_error_qw(hp::DoFHandler<dim> &dof_handler, Vector<double> &solution,
+                                  std::string &quads_dat_filename, std::string &weights_dat_filename)
 {
   std::cout << "  quads_dat_filename: " << quads_dat_filename << " and weights_dat_filename: " << weights_dat_filename << std::endl;
   std::ifstream input_quads_file(quads_dat_filename);
@@ -217,7 +260,6 @@ double compute_interface_error_hmf(hp::DoFHandler<dim> &dof_handler, Vector<doub
 
   std::vector<double> quad_values(weights.size(), 0.);
   Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
-  double radius = 1.;
   std::cout << "  Start computing quad point values..." << std::endl;
   fe_field_function.value_list(quad_points, quad_values);
   std::cout << "  Finish computing quad point values" << std::endl;
@@ -230,7 +272,7 @@ double compute_interface_error_hmf(hp::DoFHandler<dim> &dof_handler, Vector<doub
     area += weights[i];
   }
 
-  std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(radius, 2) << std::endl;
+  std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(RADIUS, 2) << std::endl;
   std::cout << "  surface_integral is " << surface_integral << std::endl;
   return surface_integral;
 }
