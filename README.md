@@ -3,6 +3,4 @@
 Dealii implementation of SBM augmented level set method.
 
 TODO: 
-1. L_inf norm error estimate
-2. MPI
-3. Level set sign
+1. star case error estimate (interface)

@@ -156,8 +156,8 @@ void NonlinearProblem<dim>::cache_interface()
     {
       if (!cell->face(face_no)->at_boundary())
       {
-        if (cell->material_id() == FLAG_MID_BAND &&
-            (cell->neighbor(face_no)->material_id() == FLAG_IN || cell->neighbor(face_no)->material_id() == FLAG_IN_BAND))
+        if ((cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() == FLAG_MID_BAND) ||
+            (cell->material_id() == FLAG_IN_BAND && cell->neighbor(face_no)->material_id() == FLAG_MID_BAND))
         {
           fe_values_face_hp.reinit(cell, face_no);
           const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
@@ -445,6 +445,29 @@ void NonlinearProblem<dim>::narrow_band_helper(hp::DoFHandler<dim> &dof_handler,
 template <int dim>
 void NonlinearProblem<dim>::setup_system()
 {
+  if (case_flag == PORE_CASE)
+  {
+    // pore_number can't be of "unsigned int" type, otherwise causing overflow
+    c1 = ((pore_number / 3) - 1) * 0.2;
+    c2 = ((pore_number % 3) - 1) * 0.2;
+    std::cout << "  Pore inf: c1 = " << c1 << ", c2 = " << c2 << std::endl;
+    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
+                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
+                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                      "_" + Utilities::int_to_string(refinement_increment, 1) +
+                      "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
+                      "_pore_" + Utilities::int_to_string(pore_number, 1) +
+                      "_laplace_" + Utilities::int_to_string(constraint_type, 1);
+  }
+  else
+  {
+    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
+                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
+                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
+                      "_" + Utilities::int_to_string(refinement_increment, 1) +
+                      "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
+                      "_laplace_" + Utilities::int_to_string(constraint_type, 1);
+  }
 
   std::cout << "  Strat grid" << std::endl;
 
@@ -461,7 +484,7 @@ void NonlinearProblem<dim>::setup_system()
     }
   }
   else
-    refinement_increment = 0;
+    assert(refinement_increment == 0 && "Warning: It doesn't make any sense to set refinement_increment as nonzero for GLOBAL flag.");
 
 
   dof_handler.distribute_dofs(fe_collection);
@@ -485,29 +508,6 @@ void NonlinearProblem<dim>::setup_system()
 
   std::cout << "  End grid" << std::endl;
 
-  if (case_flag == PORE_CASE)
-  {
-    // pore_number can't be of "unsigned int" type, otherwise causing overflow
-    c1 = ((pore_number / 3) - 1) * 0.2;
-    c2 = ((pore_number % 3) - 1) * 0.2;
-    std::cout << "  Pore inf: c1 = " << c1 << ", c2 = " << c2 << std::endl;
-    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
-                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
-                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
-                      "_" + Utilities::int_to_string(refinement_increment, 1) +
-                      "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
-                      "_pore_" + Utilities::int_to_string(pore_number, 1) + 
-                      "_laplace_" + Utilities::int_to_string(constraint_type, 1);
-  }
-  else
-  {
-    vector_filename = "../data/vector/case_" + Utilities::int_to_string(case_flag, 1) +
-                      "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
-                      "_refinement_level_" + Utilities::int_to_string(refinement_level, 1) +
-                      "_" + Utilities::int_to_string(refinement_increment, 1) +
-                      "_map_choice_" + Utilities::int_to_string(map_choice, 1) +
-                      "_laplace_" + Utilities::int_to_string(constraint_type, 1);
-  }
 
 
 }
@@ -604,8 +604,8 @@ void NonlinearProblem<dim>::assemble_system_picard()
             }
           }
         }
-        else if (cell->material_id() == FLAG_MID_BAND &&
-                 (cell->neighbor(face_no)->material_id() == FLAG_IN || cell->neighbor(face_no)->material_id() == FLAG_IN_BAND))
+        else if ((cell->material_id() == FLAG_IN && cell->neighbor(face_no)->material_id() == FLAG_MID_BAND) ||
+                 (cell->material_id() == FLAG_IN_BAND && cell->neighbor(face_no)->material_id() == FLAG_MID_BAND))
         {
           fe_values_face_hp.reinit(cell, face_no);
           const FEFaceValues<dim> &fe_values_face = fe_values_face_hp.get_present_fe_values();
@@ -644,8 +644,6 @@ void NonlinearProblem<dim>::assemble_system_picard()
                                            system_rhs);
   }
 }
-
-
 
 
 template <int dim>
@@ -963,22 +961,22 @@ void NonlinearProblem<dim>::run()
 
   unsigned int picard_step = 0;
   double res = 1e3;
-  while (res > 1e-8 && picard_step < 100)
+  while (res > 1e-8 && picard_step < 1000)
   {
-    std::cout << std::endl << "  Picard step " << picard_step << std::endl;
+    // std::cout << std::endl << "  Picard step " << picard_step << std::endl;
 
-    std::cout << "  Start to assemble system" << std::endl;
+    // std::cout << "  Start to assemble system" << std::endl;
     assemble_system_picard();
-    std::cout << "  End of assemble system" << std::endl;
+    // std::cout << "  End of assemble system" << std::endl;
 
-    std::cout << "  Start to solve..." << std::endl;
+    // std::cout << "  Start to solve..." << std::endl;
     solve_picard();
-    std::cout << "  End of solve" << std::endl;
+    // std::cout << "  End of solve" << std::endl;
 
     Vector<double>  delta_solution = solution;
     delta_solution.sadd(-1, old_solution);
     res = delta_solution.l2_norm();
-    std::cout << "  Delta phi norm: " << res  << std::endl;
+    // std::cout << "  Delta phi norm: " << res  << std::endl;
 
     old_solution = solution;
     picard_step++;

@@ -218,8 +218,8 @@ def point_c_and_scale(element_id, base):
 
 
 def generate_cut_elements():
-    start_refinement_level = 6
-    end_refinement_level = 9
+    start_refinement_level = 5
+    end_refinement_level = 7
     start_base = np.power(DIVISION, start_refinement_level)
     ids_cut = brute_force(start_base)
     total_ids = []
@@ -243,6 +243,7 @@ def generate_cut_elements():
         total_refinement_levels.append(refinement_level + 1)
         print("refinement_level {}, length of inds {}".format(refinement_level + 1, len(ids_cut)))
 
+    print("len of total_refinement_levels {}".format(len(total_refinement_levels)))
     np.savez('data/numpy/{}_cut_element_ids.npz'.format(surface), ids=total_ids, refinement_level=total_refinement_levels, allow_pickle=True)
     return total_ids, total_refinement_levels
 
@@ -252,7 +253,7 @@ def main():
     total_ids = data['ids']
     total_refinement_levels = data['refinement_level']
     
-    index = 1
+    index = -1
     ids_cut = total_ids[index]
     refinement_level = total_refinement_levels[index]
     base = np.power(DIVISION, refinement_level)

@@ -17,7 +17,6 @@ DIM = 3
 DOMAIN_SIZE = 2
 DIVISION = 2
 surface = 'sphere'
-QUAD_LEVEL = 3
 NUM_DIRECTIONS = 2
 
 
@@ -86,33 +85,23 @@ def estimate_weights(shifted_q_point, d, step):
              triangle_area(mapped_boundary_points[3], mapped_boundary_points[2], mapped_q_point) + \
              triangle_area(mapped_boundary_points[3], mapped_boundary_points[1], mapped_q_point)
 
-    # print(mapped_boundary_points)
-    # print(mapped_q_point)
-    # print(triangle_area(mapped_boundary_points[0], mapped_boundary_points[1], mapped_q_point))
-   
     return mapped_q_point, weight
 
 
-def process_face(face, base, h, ax):
-    step = h / QUAD_LEVEL
+def process_face(face, base, h, quad_level):
+    step = h / quad_level
     mapped_quad_points = []
     weights = []
     element_id, face_number = face
     id_xyz = to_id_xyz(element_id, base)
     d = face_number // NUM_DIRECTIONS
     r = face_number % NUM_DIRECTIONS
-    shifted_quad_points = np.zeros((np.power(QUAD_LEVEL, 2), DIM))
-    for i in range(QUAD_LEVEL):
-        for j in range(QUAD_LEVEL):
-            shifted_quad_points[i * QUAD_LEVEL + j, d] = -DOMAIN_SIZE + (id_xyz[d] + r) * h
-            shifted_quad_points[i * QUAD_LEVEL + j, (d + 1) % DIM] = -DOMAIN_SIZE + id_xyz[(d + 1) % DIM]* h + step / 2. + i * step
-            shifted_quad_points[i * QUAD_LEVEL + j, (d + 2) % DIM] = -DOMAIN_SIZE + id_xyz[(d + 2) % DIM]* h + step / 2. + j * step
-
-    # colors = ['blue', 'red', 'yellow']
-    # print(face)
-    # print(shifted_quad_points)
-    # print("\n")
-    # ax.scatter(shifted_quad_points[:, 0], shifted_quad_points[:, 1], shifted_quad_points[:, 2], color=colors[d], s=0.1)
+    shifted_quad_points = np.zeros((np.power(quad_level, 2), DIM))
+    for i in range(quad_level):
+        for j in range(quad_level):
+            shifted_quad_points[i * quad_level + j, d] = -DOMAIN_SIZE + (id_xyz[d] + r) * h
+            shifted_quad_points[i * quad_level + j, (d + 1) % DIM] = -DOMAIN_SIZE + id_xyz[(d + 1) % DIM]* h + step / 2. + i * step
+            shifted_quad_points[i * quad_level + j, (d + 2) % DIM] = -DOMAIN_SIZE + id_xyz[(d + 2) % DIM]* h + step / 2. + j * step
 
     for shifted_q_point in shifted_quad_points:
         mapped_quad_point, weight = estimate_weights(shifted_q_point, d, step)
@@ -122,46 +111,108 @@ def process_face(face, base, h, ax):
     return mapped_quad_points, weights
 
 
-def main():
+def compute_qw(quad_levels, mesh_index, name):
     data = np.load('data/numpy/{}_cut_element_ids.npz'.format(surface), allow_pickle=True)
     total_ids = data['ids']
     total_refinement_levels = data['refinement_level']
-    index = 1
-    ids_cut = total_ids[index]
-    refinement_level = total_refinement_levels[index]
+
+    ids_cut = total_ids[mesh_index]
+    refinement_level = total_refinement_levels[mesh_index]
     base = np.power(DIVISION, refinement_level)
     h = 2 * DOMAIN_SIZE / base
-    print("refinement_level is {} with h being {}, number of elements cut is {}".format(refinement_level, h, len(ids_cut)))
-
-    weights = []
-    quad_points = []
-    shifted_quad_points = []
+    print("\nrefinement_level is {} with h being {}, number of elements cut is {}".format(refinement_level, h, len(ids_cut)))
 
     faces = []
     for ele in range(0, len(ids_cut)):
         element_id = ids_cut[ele]
         faces += neighbors(element_id, base, h)
 
-    mapped_quad_points = []
-    weights = []
-    ground_truth = 4 * np.pi
+
+    for quad_level in quad_levels:
+
+        mapped_quad_points = []
+        weights = []
+        ground_truth = 4 * np.pi
+
+        for i, f in enumerate(faces):
+            mapped_quad_points_f, weights_f = process_face(faces[i], base, h, quad_level)
+            mapped_quad_points += mapped_quad_points_f
+            weights += weights_f
+            if i % 100 == 0:
+                print("Progress {:.5f}%, weights {:.5f}, and gt is {:.5f}".format((i + 1)/len(faces)*100, np.sum(np.array(weights)), ground_truth))
+
+        print(np.sum(np.array(weights)))
+
+        case_no = 2 if surface == 'sphere' else 3
+
+        # np.savetxt('data/dat/surface_integral/sbi_case_{}_quads.dat'.format(case_no), np.asarray(mapped_quad_points).reshape(-1, DIM))
+        # np.savetxt('data/dat/surface_integral/sbi_case_{}_weights.dat'.format(case_no), np.asarray(weights).reshape(-1))
+
+        np.savetxt('data/dat/{}/sbi_case_{}_mesh_index_{}_quad_level_{}_quads.dat'.format(name, 
+            case_no, mesh_index, quad_level), np.asarray(mapped_quad_points).reshape(-1, DIM))
+        np.savetxt('data/dat/{}/sbi_case_{}_mesh_index_{}_quad_level_{}_weights.dat'.format(name, 
+            case_no, mesh_index, quad_level), np.asarray(weights).reshape(-1))
+
+
+def test_function(points):
+    return 4 - 3 * points[:, 0]**2 + 2 * points[:, 1]**2 - points[:, 2]**2
+
+
+def cache_compute_qw(name):
+    case_no = 2 if surface == 'sphere' else 3
+    quad_levels = np.arange(1, 4, 1)
+    mesh_indices =  np.arange(0, 3, 1)
+
+    mesh = []
+    cache = False
+    if cache:
+        for mesh_index in mesh_indices:
+            compute_qw(quad_levels, mesh_index, name)
+
+    ground_truth = 40. / 3. * np.pi
+    errors = []
+    for i, quad_level in enumerate(quad_levels):
+        errors.append([])
+        for j, mesh_index in enumerate(mesh_indices):
+            mapped_quad_points = np.loadtxt('data/dat/{}/sbi_case_{}_mesh_index_{}_quad_level_{}_quads.dat'.format(name, 
+                case_no, mesh_index, quad_level))
+            weights = np.loadtxt('data/dat/{}/sbi_case_{}_mesh_index_{}_quad_level_{}_weights.dat'.format(name, 
+                case_no, mesh_index, quad_level))
+            values = test_function(mapped_quad_points)
+            integral = np.sum(weights * values)
+            relative_error = np.absolute((integral - ground_truth) / ground_truth)
+            print("num quad points {}, quad_level {}, mesh_index {}, integral {}, ground_truth {}, relative error {}".format(len(weights), 
+                 quad_level, mesh_index, integral, ground_truth, relative_error))
+            errors[i].append(relative_error)
+
+    for mesh_index in mesh_indices:
+
+        data = np.load('data/numpy/{}_cut_element_ids.npz'.format(surface), allow_pickle=True)
+        total_ids = data['ids']
+        total_refinement_levels = data['refinement_level']
+        ids_cut = total_ids[mesh_index]
+        refinement_level = total_refinement_levels[mesh_index]
+        base = np.power(DIVISION, refinement_level)
+        h = 2 * DOMAIN_SIZE / base
+        mesh.append(h)
 
     fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    for i, f in enumerate(faces):
-        mapped_quad_points_f, weights_f = process_face(faces[i], base, h, ax)
-        mapped_quad_points += mapped_quad_points_f
-        weights += weights_f
-        print("Progress {:.5f}%, weights {:.5f}, and gt is {:.5f}".format((i + 1)/len(faces)*100, np.sum(np.array(weights)), ground_truth))
+    ax = fig.gca()
+    for i, quad_level in enumerate(quad_levels):
+        ax.plot(mesh, errors[i], linestyle='--', marker='o', label='# quad points per face {}x{}={}'.format(i + 1, i + 1, (i + 1)*(i + 1)))
+ 
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.legend(loc='upper left', prop={'size': 12})
+    ax.tick_params(labelsize=14)
+    ax.set_xlabel('mesh size', fontsize=14)
+    ax.set_ylabel('relative error', fontsize=14)
+    # fig.savefig(args.root_path + '/images/linear/L.png', bbox_inches='tight')
 
-    print(np.sum(np.array(weights)))
-
-    case_no = 2 if surface == 'sphere' else 3
-    np.savetxt('data/dat/surface_integral/sbi_case_{}_quads.dat'.format(case_no), np.asarray(mapped_quad_points).reshape(-1, DIM))
-    np.savetxt('data/dat/surface_integral/sbi_case_{}_weights.dat'.format(case_no), np.asarray(weights).reshape(-1))
+    print( np.log(errors[0][0]/errors[0][1]) / np.log(mesh[0]/mesh[1]) )
 
 
 if __name__ == '__main__':
-    # generate_cut_elements()
-    # brute_force(np.power(DIVISION, 6))
-    main()
+    # compute_qw(quad_level=3, mesh_index=2, name='surface_integral')
+    cache_compute_qw(name='sbi_tests')
+    plt.show()

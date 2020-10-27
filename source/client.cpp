@@ -113,20 +113,19 @@
 int main ()
 {
 
-  bool debug_mode = true;
+  bool debug_mode = false;
   bool run_mode = true;
   if (debug_mode)
   {
     if (run_mode)
     {
       unsigned int refinement_level = 5;
-      unsigned int refinement_increment = 2;
-      unsigned int band_width = 2;
-      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, refinement_level, refinement_increment,
-      //                             band_width, MAP_NEWTON, CIRCLE_PORE, POISSON_CONSTRAINT);
-      NonlinearProblem<2> problem(STAR_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
-      // NonlinearProblem<3> problem(TORUS_CASE, GLOBAL, 5, MAP_NEWTON);
-      // NonlinearProblem<3> problem(SPHERE_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
+      unsigned int refinement_increment = 3;
+      unsigned int band_width = 4;
+      NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, refinement_level, refinement_increment,
+                                  band_width, MAP_BINARY_SEARCH, 0, POISSON_CONSTRAINT);
+      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_BINARY_SEARCH, 0);
+      // NonlinearProblem<3> problem(TORUS_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_BINARY_SEARCH);
       problem.run();
     }
     else
@@ -142,17 +141,61 @@ int main ()
   {
     if (run_mode)
     {
-      int total_pore_number = 9;
-      int coarse_refinement_level = 5;
-      int fine_refinement_level = 8;
-      for (int i = 0; i < total_pore_number; ++i)
+      unsigned int total_pore_number;
+      unsigned int initial_refinement_level;
+      unsigned int total_refinement_increment;
+      unsigned int band_width;
+      for (int case_flag = 0; case_flag < 4 ; case_flag++)
       {
-        for (int j = coarse_refinement_level; j < fine_refinement_level + 1; ++j)
+        if (case_flag == PORE_CASE)
         {
-          NonlinearProblem<2> problem_newton(PORE_CASE, GLOBAL, j, MAP_NEWTON, i);
-          problem_newton.run();
-          NonlinearProblem<2> problem_binary_search(PORE_CASE, GLOBAL, j, MAP_BINARY_SEARCH, i);
-          problem_binary_search.run();
+          total_pore_number = 9;
+          initial_refinement_level = 5;
+          total_refinement_increment = 4;
+          band_width = 4;
+          for (unsigned int i = 0; i < total_pore_number; ++i)
+          {
+            for (unsigned int j = 0; j < total_refinement_increment; ++j)
+            {
+              NonlinearProblem<2> problem_newton_global(case_flag, GLOBAL, initial_refinement_level + j, 0, 0, MAP_NEWTON, i);
+              problem_newton_global.run();
+              NonlinearProblem<2> problem_binary_search_global(case_flag, GLOBAL, initial_refinement_level + j, 0, 0, MAP_BINARY_SEARCH, i);
+              problem_binary_search_global.run();
+              NonlinearProblem<2> problem_newton_narrow_band(case_flag, NARROW_BAND, initial_refinement_level, j, band_width, MAP_NEWTON, i);
+              problem_newton_narrow_band.run();
+              NonlinearProblem<2> problem_binary_search_narrow_band(case_flag, NARROW_BAND, initial_refinement_level, j, band_width, MAP_BINARY_SEARCH, i);
+              problem_binary_search_narrow_band.run();
+              NonlinearProblem<2> problem_laplace(case_flag, NARROW_BAND, initial_refinement_level, j,
+                                                  band_width, MAP_NEWTON, i, POISSON_CONSTRAINT);
+              problem_laplace.run();
+            }
+          }
+        }
+        else if (case_flag == STAR_CASE)
+        {
+          initial_refinement_level = 5;
+          total_refinement_increment = 4;
+          band_width = 2;
+          for (unsigned int j = 0; j < total_refinement_increment; ++j)
+          {
+            NonlinearProblem<2> problem_newton(case_flag, NARROW_BAND, initial_refinement_level, j, band_width, MAP_NEWTON);
+            problem_newton.run();
+            NonlinearProblem<2> problem_binary_search(case_flag, NARROW_BAND, initial_refinement_level, j, band_width, MAP_BINARY_SEARCH);
+            problem_binary_search.run();
+          }
+        }
+        else
+        {
+          initial_refinement_level = 5;
+          total_refinement_increment = 3;
+          band_width = 1;
+          for (unsigned int j = 0; j < total_refinement_increment; ++j)
+          {
+            NonlinearProblem<3> problem_newton(case_flag, NARROW_BAND, initial_refinement_level, j, band_width, MAP_NEWTON);
+            problem_newton.run();
+            NonlinearProblem<3> problem_binary_search(case_flag, NARROW_BAND, initial_refinement_level, j, band_width, MAP_BINARY_SEARCH);
+            problem_binary_search.run();
+          }
         }
       }
     }

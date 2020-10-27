@@ -22,7 +22,8 @@ double BoundaryValues<dim>::value(const Point<dim> & p,
   return 1.;
 }
 
-
+// Mathematica code
+// ContourPlot[ x^2+ y^2 - (1 -0.2*Cos[4*ArcTan[y/x]] -0.2*Cos[8*ArcTan[y/x]]) , {x,-2,2}, {y,-2,2}]
 template <int dim>
 double pore_function_value(const Point<dim> &point, double c1, double c2)
 {
@@ -263,6 +264,8 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
 {
   for (int i = 0; i < length; ++i)
   {
+    assert(function_value(points[i]) < 0 && "Error! Binary search should start inside of domain!");
+
     Point<dim> begin_point = points[i];
     Tensor<1, dim> normal_vector = normal_vectors[i];
     Point<dim> end_point = begin_point;
@@ -277,7 +280,6 @@ void sbm_map_binary_search(std::vector<Point<dim>> &target_points,
     double tol = 1e-6;
     double res;
     Point<dim> middle_point = begin_point;
-
     do
     {
       res = function_value(middle_point);
