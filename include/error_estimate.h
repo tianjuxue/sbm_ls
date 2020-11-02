@@ -6,11 +6,26 @@ using namespace dealii;
 
 // Only a circle in the 2D case or a sphere in the 3D case has exact solutions
 template <int dim>
-void exact_solution(std::vector<double> &u_e, const std::vector<Point<dim>> &points, int length)
+void exact_solution_value(std::vector<double> &u_e, const std::vector<Point<dim>> &points, int length)
 {
   for (int i = 0; i < length; ++i)
   {
-    u_e[i] =  1 - sqrt(points[i].square());
+    u_e[i] =  sqrt(points[i].square()) - 1;
+  }
+}
+
+// Only a circle in the 2D case or a sphere in the 3D case has exact solutions
+template <int dim>
+void exact_solution_gradient(std::vector<Tensor<1, dim>> &g_e, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    Tensor<1, dim> gradient;
+    for (int d = 0; d < dim; ++d)
+    {
+      gradient[d] = points[i][d] / sqrt(points[i].square());
+    }
+    g_e[i] =  gradient;
   }
 }
 
@@ -42,11 +57,11 @@ double compute_L2_error(hp::DoFHandler<dim> &dof_handler,
       std::vector<double> solution_values(n_q_points);
       fe_values.get_function_values (solution, solution_values);
       std::vector<double> u_exact(n_q_points);
-      exact_solution(u_exact, fe_values.get_quadrature_points(), n_q_points);
+      exact_solution_value(u_exact, fe_values.get_quadrature_points(), n_q_points);
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
-        double local_l2_error =  solution_values[q] - u_exact[q];
+        double local_l2_error = solution_values[q] - u_exact[q];
         l2_error_square += local_l2_error * local_l2_error * fe_values.JxW(q);
       }
     }
@@ -55,6 +70,54 @@ double compute_L2_error(hp::DoFHandler<dim> &dof_handler,
   return L2_error;
 }
 
+
+template <int dim>
+double compute_H1_error(hp::DoFHandler<dim> &dof_handler,
+                        Vector<double> &solution,
+                        hp::FECollection<dim> &fe_collection,
+                        hp::QCollection<dim> &q_collection,
+                        unsigned int domain_flag)
+{
+  double h1_error_square = 0;
+  hp::FEValues<dim> fe_values_hp (fe_collection, q_collection,
+                                  update_values    |  update_gradients |
+                                  update_quadrature_points  |  update_JxW_values);
+
+  typename hp::DoFHandler<dim>::active_cell_iterator
+  cell = dof_handler.begin_active(),
+  endc = dof_handler.end();
+
+  for (; cell != endc; ++cell)
+  {
+    if (cell->active_fe_index() == 0 || domain_flag == GLOBAL)
+    {
+      fe_values_hp.reinit (cell);
+      const FEValues<dim> &fe_values = fe_values_hp.get_present_fe_values();
+      const unsigned int &n_q_points = fe_values.n_quadrature_points;
+
+      std::vector<double> solution_values(n_q_points);
+      fe_values.get_function_values (solution, solution_values);
+      std::vector<double> u_exact(n_q_points);
+      exact_solution_value(u_exact, fe_values.get_quadrature_points(), n_q_points);
+
+      std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
+      fe_values.get_function_gradients(solution, solution_gradients);
+      std::vector<Tensor<1, dim>> g_exact(n_q_points);
+      exact_solution_gradient(g_exact, fe_values.get_quadrature_points(), n_q_points);
+
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        double local_value_error = solution_values[q] - u_exact[q];
+        h1_error_square += local_value_error * local_value_error * fe_values.JxW(q);
+        Tensor<1, dim> local_grad_error = solution_gradients[q] - g_exact[q];
+        h1_error_square += local_grad_error * local_grad_error * fe_values.JxW(q);
+        
+      }
+    }
+  }
+  const double H1_error = std::sqrt(h1_error_square);
+  return H1_error;
+}
 
 
 template <int dim>
@@ -90,7 +153,7 @@ double compute_Linfty_error(hp::DoFHandler<dim> &dof_handler,
       std::vector<double> solution_values(n_q_points);
       fe_values.get_function_values (solution, solution_values);
       std::vector<double> u_exact(n_q_points);
-      exact_solution(u_exact, fe_values.get_quadrature_points(), n_q_points);
+      exact_solution_value(u_exact, fe_values.get_quadrature_points(), n_q_points);
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {

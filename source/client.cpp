@@ -113,27 +113,32 @@
 int main ()
 {
 
-  bool debug_mode = false;
+  bool debug_mode = true;
   bool run_mode = true;
   if (debug_mode)
   {
     if (run_mode)
     {
       unsigned int refinement_level = 5;
-      unsigned int refinement_increment = 3;
-      unsigned int band_width = 4;
-      NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, refinement_level, refinement_increment,
-                                  band_width, MAP_BINARY_SEARCH, 0, POISSON_CONSTRAINT);
-      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_BINARY_SEARCH, 0);
-      // NonlinearProblem<3> problem(TORUS_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_BINARY_SEARCH);
+      unsigned int refinement_increment = 2;
+      unsigned int band_width = 1;
+      // NonlinearProblem<2> problem(PORE_CASE, NARROW_BAND, refinement_level, refinement_increment,
+      //                             band_width, MAP_BINARY_SEARCH, 0, POISSON_CONSTRAINT);
+      // NonlinearProblem<2> problem(PORE_CASE, GLOBAL, refinement_level, refinement_increment, band_width,
+      //                             MAP_NEWTON, 0);
+      NonlinearProblem<3> problem(TORUS_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_BINARY_SEARCH);
       problem.run();
     }
     else
     {
       unsigned int refinement_level = 5;
-      unsigned int refinement_increment = 1;
-      unsigned int band_width = 1;
-      NonlinearProblem<3> problem(SPHERE_CASE, NARROW_BAND, refinement_level, refinement_increment, band_width, MAP_NEWTON);
+      unsigned int refinement_increment = 0;
+      unsigned int band_width = 4;
+
+      // narrow_band_1_refinement_level_8_0_map_choice_1_pore_1_laplace_0
+
+      NonlinearProblem<2> problem(PORE_CASE, GLOBAL, refinement_level, refinement_increment, band_width,
+                                  MAP_NEWTON, 4);
       problem.error_analysis();
     }
   }
@@ -201,62 +206,76 @@ int main ()
     }
     else
     {
-      int total_pore_number = 9;
-      int coarse_refinement_level = 5;
-      int fine_refinement_level = 8;
-      for (int i = 0; i < total_pore_number; ++i)
+      unsigned int total_pore_number;
+      unsigned int initial_refinement_level;
+      unsigned int total_refinement_increment;
+      unsigned int band_width;
+      for (int case_flag = 0; case_flag < 4 ; case_flag++)
       {
-        std::vector<double> error_list_newton;
-        std::vector<double> error_list_bs;
-
-        std::string newton_dat_filename = "../data/dat/convergence/pore_" + Utilities::int_to_string(i, 1) + "_newton.dat";
-        std::string bs_dat_filename = "../data/dat/convergence/pore_" + Utilities::int_to_string(i, 1) + "_bs.dat";
-
-        std::ofstream newton_dat_file;
-        std::ofstream bs_dat_file;
-        newton_dat_file.open(newton_dat_filename);
-        bs_dat_file.open(bs_dat_filename);
-
-        for (int j = coarse_refinement_level; j < fine_refinement_level + 1; ++j)
+        if (case_flag == PORE_CASE)
         {
-          NonlinearProblem<2> problem_newton(PORE_CASE, NARROW_BAND, j, MAP_NEWTON, i);
-          problem_newton.error_analysis();
+          total_pore_number = 9;
+          initial_refinement_level = 5;
+          total_refinement_increment = 4;
+          band_width = 4;
+          for (unsigned int i = 0; i < total_pore_number; ++i)
+          {
+            std::vector<double> error_list_newton;
+            std::vector<double> error_list_bs;
+            std::vector<double> error_list_laplace;
+            std::string newton_dat_filename = "../data/dat/convergence/case_0/pore_" + Utilities::int_to_string(i, 1) + "_newton.dat";
+            std::string bs_dat_filename = "../data/dat/convergence/case_0/pore_" + Utilities::int_to_string(i, 1) + "_bs.dat";
+            std::string laplace_dat_filename = "../data/dat/convergence/case_0/pore_" + Utilities::int_to_string(i, 1) + "_laplace.dat";
+            std::ofstream newton_dat_file;
+            std::ofstream bs_dat_file;
+            std::ofstream laplace_dat_file;
+            newton_dat_file.open(newton_dat_filename);
+            bs_dat_file.open(bs_dat_filename);
+            laplace_dat_file.open(laplace_dat_filename);
 
-          NonlinearProblem<2> problem_binary_search(PORE_CASE, NARROW_BAND, j, MAP_BINARY_SEARCH, i);
-          problem_binary_search.error_analysis();
+            for (unsigned int j = 0; j < total_refinement_increment; ++j)
+            {
+              NonlinearProblem<2> problem_newton_global(case_flag, GLOBAL, initial_refinement_level + j, 0, 0, MAP_NEWTON, i);
+              problem_newton_global.error_analysis();
+              NonlinearProblem<2> problem_binary_search_global(case_flag, GLOBAL, initial_refinement_level + j, 0, 0, MAP_BINARY_SEARCH, i);
+              problem_binary_search_global.error_analysis();
+              NonlinearProblem<2> problem_newton_narrow_band(case_flag, NARROW_BAND, initial_refinement_level, j, band_width, MAP_NEWTON, i);
+              problem_newton_narrow_band.error_analysis();
+              NonlinearProblem<2> problem_binary_search_narrow_band(case_flag, NARROW_BAND, initial_refinement_level, j, band_width, MAP_BINARY_SEARCH, i);
+              problem_binary_search_narrow_band.error_analysis();
+              NonlinearProblem<2> problem_laplace(case_flag, NARROW_BAND, initial_refinement_level, j,
+                                                  band_width, MAP_NEWTON, i, POISSON_CONSTRAINT);
+              problem_laplace.error_analysis();
 
-          newton_dat_file << problem_newton.h << " " << problem_newton.L2_error << " "
-                          << problem_newton.SD_error << " " << problem_newton.interface_error_parametric << std::endl;
-          bs_dat_file << problem_binary_search.h <<  " " << problem_binary_search.L2_error << " "
-                      << problem_binary_search.SD_error << " " << problem_binary_search.interface_error_parametric << std::endl;
+              newton_dat_file << problem_newton_global.h << " " << problem_newton_global.L2_error << " "
+                              << problem_newton_global.H1_error << " " << problem_newton_global.L_infty_error << " "
+                              << problem_newton_global.SD_error << " " << problem_newton_global.interface_error_parametric << " "
+                              << problem_newton_narrow_band.h << " " << problem_newton_narrow_band.L2_error << " "
+                              << problem_newton_narrow_band.H1_error << " " << problem_newton_narrow_band.L_infty_error << " "
+                              << problem_newton_narrow_band.SD_error << " " << problem_newton_narrow_band.interface_error_parametric
+                              << std::endl;
+
+              bs_dat_file << problem_binary_search_global.h << " " << problem_binary_search_global.L2_error << " "
+                          << problem_binary_search_global.H1_error << " " << problem_binary_search_global.L_infty_error << " "
+                          << problem_binary_search_global.SD_error << " " << problem_binary_search_global.interface_error_parametric << " "
+                          << problem_binary_search_narrow_band.h << " " << problem_binary_search_narrow_band.L2_error << " "
+                          << problem_binary_search_narrow_band.H1_error << " " << problem_binary_search_narrow_band.L_infty_error << " "
+                          << problem_binary_search_narrow_band.SD_error << " " << problem_binary_search_narrow_band.interface_error_parametric
+                          << std::endl;
+
+              laplace_dat_file << problem_laplace.h << " " << problem_laplace.L2_error << " "
+                               << problem_laplace.H1_error << " " << problem_laplace.L_infty_error << " "
+                               << problem_laplace.SD_error << " " << problem_laplace.interface_error_parametric
+                               << std::endl;
+            }
+            newton_dat_file.close();
+            bs_dat_file.close();
+            laplace_dat_file.close();
+          }
         }
-
-        // std::cout << std::endl << "--------------------------------------------------------" << std::endl;
-        // for (int j = 0; j < fine_refinement_level - coarse_refinement_level; ++j)
-        // {
-        //   std::cout << "pore number " << i << " newton ratio  is "
-        //             << error_list_newton[j] / error_list_newton[j + 1] << std::endl;
-        // }
-        // for (int j = 0; j < fine_refinement_level - coarse_refinement_level + 1; ++j)
-        // {
-        //   std::cout << "pore number " << i << " newton error " <<  error_list_newton[j] << std::endl;
-        // }
-        // std::cout << std::endl;
-
-        // for (int j = 0; j < fine_refinement_level - coarse_refinement_level; ++j)
-        // {
-        //   std::cout << "pore number " << i << " bs ratio  is "
-        //             << error_list_bs[j] / error_list_bs[j + 1] << std::endl;
-        // }
-        // for (int j = 0; j < fine_refinement_level - coarse_refinement_level + 1; ++j)
-        // {
-        //   std::cout << "pore number " << i << " bs error " << error_list_bs[j] << std::endl;
-        // }
-        // std::cout << "--------------------------------------------------------" << std::endl;
-
-        newton_dat_file.close();
-        bs_dat_file.close();
-
+        else
+        {
+        }
       }
     }
   }

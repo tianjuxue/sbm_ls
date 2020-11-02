@@ -23,6 +23,7 @@ public:
   double h;
   double L_infty_error;
   double L2_error;
+  double H1_error;
   double SD_error;
   double interface_error_parametric;
   double interface_error_qw;
@@ -86,6 +87,7 @@ NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
   :
   L_infty_error(0.),
   L2_error(0.),
+  H1_error(0.),
   SD_error(0.),
   interface_error_parametric(0.),
   interface_error_qw(0.),
@@ -884,6 +886,7 @@ void NonlinearProblem<dim>::error_analysis()
     {
       L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
       L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag);
+      H1_error = compute_H1_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
     }
   }
   else if (case_flag == STAR_CASE)
@@ -897,6 +900,7 @@ void NonlinearProblem<dim>::error_analysis()
     // interface_error_qw = compute_interface_error_qw(dof_handler, solution, quads_dat_filename, weights_dat_filename);
     // L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
     // L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag);
+    // H1_error = compute_H1_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
   }
   else if (case_flag == TORUS_CASE)
   {
@@ -963,7 +967,7 @@ void NonlinearProblem<dim>::run()
   double res = 1e3;
   while (res > 1e-8 && picard_step < 1000)
   {
-    // std::cout << std::endl << "  Picard step " << picard_step << std::endl;
+    std::cout << std::endl << "  Picard step " << picard_step << std::endl;
 
     // std::cout << "  Start to assemble system" << std::endl;
     assemble_system_picard();
@@ -976,7 +980,7 @@ void NonlinearProblem<dim>::run()
     Vector<double>  delta_solution = solution;
     delta_solution.sadd(-1, old_solution);
     res = delta_solution.l2_norm();
-    // std::cout << "  Delta phi norm: " << res  << std::endl;
+    std::cout << "  Delta phi norm: " << res  << std::endl;
 
     old_solution = solution;
     picard_step++;
