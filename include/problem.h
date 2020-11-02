@@ -897,10 +897,10 @@ void NonlinearProblem<dim>::error_analysis()
   else if (case_flag == SPHERE_CASE)
   {
     interface_error_parametric = compute_interface_error_sphere(dof_handler, solution);
-    // interface_error_qw = compute_interface_error_qw(dof_handler, solution, quads_dat_filename, weights_dat_filename);
-    // L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
-    // L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag);
-    // H1_error = compute_H1_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
+    interface_error_qw = compute_interface_error_qw(dof_handler, solution, quads_dat_filename, weights_dat_filename);
+    L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
+    L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag);
+    H1_error = compute_H1_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
   }
   else if (case_flag == TORUS_CASE)
   {

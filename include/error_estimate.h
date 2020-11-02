@@ -233,7 +233,7 @@ double compute_interface_error_pore(hp::DoFHandler<dim> &dof_handler,
     double interval_measure = (quad_points[i + 1] - quad_points[i]).norm();
     line_integral += (value_start + value_end) * interval_measure / 2; // Trapezoid rule
   }
-  return line_integral;
+  return std::sqrt(line_integral);
 }
 
 
@@ -283,7 +283,7 @@ double compute_interface_error_sphere(hp::DoFHandler<dim> &dof_handler, Vector<d
 
   std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(RADIUS, 2) << std::endl;
   std::cout << "  surface_integral is " << surface_integral << std::endl;
-  return surface_integral;
+  return std::sqrt(surface_integral);
 }
 
 
@@ -337,7 +337,7 @@ double compute_interface_error_qw(hp::DoFHandler<dim> &dof_handler, Vector<doubl
 
   std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(RADIUS, 2) << std::endl;
   std::cout << "  surface_integral is " << surface_integral << std::endl;
-  return surface_integral;
+  return std::sqrt(surface_integral);
 }
 
 #endif

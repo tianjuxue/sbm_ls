@@ -113,8 +113,8 @@
 int main ()
 {
 
-  bool debug_mode = true;
-  bool run_mode = true;
+  bool debug_mode = false;
+  bool run_mode = false;
   if (debug_mode)
   {
     if (run_mode)
@@ -210,7 +210,7 @@ int main ()
       unsigned int initial_refinement_level;
       unsigned int total_refinement_increment;
       unsigned int band_width;
-      for (int case_flag = 0; case_flag < 4 ; case_flag++)
+      for (int case_flag = 2; case_flag < 4 ; case_flag++)
       {
         if (case_flag == PORE_CASE)
         {
@@ -223,9 +223,12 @@ int main ()
             std::vector<double> error_list_newton;
             std::vector<double> error_list_bs;
             std::vector<double> error_list_laplace;
-            std::string newton_dat_filename = "../data/dat/convergence/case_0/pore_" + Utilities::int_to_string(i, 1) + "_newton.dat";
-            std::string bs_dat_filename = "../data/dat/convergence/case_0/pore_" + Utilities::int_to_string(i, 1) + "_bs.dat";
-            std::string laplace_dat_filename = "../data/dat/convergence/case_0/pore_" + Utilities::int_to_string(i, 1) + "_laplace.dat";
+            std::string newton_dat_filename = "../data/dat/convergence/case_" +  Utilities::int_to_string(case_flag, 1) +
+                                              "/pore_" + Utilities::int_to_string(i, 1) + "_newton.dat";
+            std::string bs_dat_filename = "../data/dat/convergence/case_" + Utilities::int_to_string(case_flag, 1) +
+                                          "/pore_" + Utilities::int_to_string(i, 1) + "_bs.dat";
+            std::string laplace_dat_filename = "../data/dat/convergence/case_" + Utilities::int_to_string(case_flag, 1) +
+                                               "/pore_" + Utilities::int_to_string(i, 1) + "_laplace.dat";
             std::ofstream newton_dat_file;
             std::ofstream bs_dat_file;
             std::ofstream laplace_dat_file;
@@ -247,20 +250,20 @@ int main ()
                                                   band_width, MAP_NEWTON, i, POISSON_CONSTRAINT);
               problem_laplace.error_analysis();
 
-              newton_dat_file << problem_newton_global.h << " " << problem_newton_global.L2_error << " "
-                              << problem_newton_global.H1_error << " " << problem_newton_global.L_infty_error << " "
-                              << problem_newton_global.SD_error << " " << problem_newton_global.interface_error_parametric << " "
-                              << problem_newton_narrow_band.h << " " << problem_newton_narrow_band.L2_error << " "
+              newton_dat_file << problem_newton_narrow_band.h << " " << problem_newton_narrow_band.L2_error << " "
                               << problem_newton_narrow_band.H1_error << " " << problem_newton_narrow_band.L_infty_error << " "
-                              << problem_newton_narrow_band.SD_error << " " << problem_newton_narrow_band.interface_error_parametric
+                              << problem_newton_narrow_band.SD_error << " " << problem_newton_narrow_band.interface_error_parametric << " "
+                              << problem_newton_global.h << " " << problem_newton_global.L2_error << " "
+                              << problem_newton_global.H1_error << " " << problem_newton_global.L_infty_error << " "
+                              << problem_newton_global.SD_error << " " << problem_newton_global.interface_error_parametric
                               << std::endl;
 
-              bs_dat_file << problem_binary_search_global.h << " " << problem_binary_search_global.L2_error << " "
-                          << problem_binary_search_global.H1_error << " " << problem_binary_search_global.L_infty_error << " "
-                          << problem_binary_search_global.SD_error << " " << problem_binary_search_global.interface_error_parametric << " "
-                          << problem_binary_search_narrow_band.h << " " << problem_binary_search_narrow_band.L2_error << " "
+              bs_dat_file << problem_binary_search_narrow_band.h << " " << problem_binary_search_narrow_band.L2_error << " "
                           << problem_binary_search_narrow_band.H1_error << " " << problem_binary_search_narrow_band.L_infty_error << " "
-                          << problem_binary_search_narrow_band.SD_error << " " << problem_binary_search_narrow_band.interface_error_parametric
+                          << problem_binary_search_narrow_band.SD_error << " " << problem_binary_search_narrow_band.interface_error_parametric << " "
+                          << problem_binary_search_global.h << " " << problem_binary_search_global.L2_error << " "
+                          << problem_binary_search_global.H1_error << " " << problem_binary_search_global.L_infty_error << " "
+                          << problem_binary_search_global.SD_error << " " << problem_binary_search_global.interface_error_parametric
                           << std::endl;
 
               laplace_dat_file << problem_laplace.h << " " << problem_laplace.L2_error << " "
@@ -273,8 +276,27 @@ int main ()
             laplace_dat_file.close();
           }
         }
-        else
+        else if (case_flag == SPHERE_CASE || case_flag == TORUS_CASE)
         {
+          initial_refinement_level = 5;
+          total_refinement_increment = 3;
+          band_width = 1;
+          std::vector<double> error_list_newton;
+          std::string newton_dat_filename = "../data/dat/convergence/case_" +  Utilities::int_to_string(case_flag, 1) +
+                                            "/newton.dat";
+          std::ofstream newton_dat_file;
+          newton_dat_file.open(newton_dat_filename);
+          for (unsigned int j = 0; j < total_refinement_increment; ++j)
+          {
+            NonlinearProblem<3> problem_newton(case_flag, NARROW_BAND, initial_refinement_level, j, band_width, MAP_NEWTON);
+            problem_newton.error_analysis();
+            newton_dat_file << problem_newton.h << " " << problem_newton.L2_error << " "
+                            << problem_newton.H1_error << " " << problem_newton.L_infty_error << " "
+                            << problem_newton.SD_error << " "
+                            << problem_newton.interface_error_parametric << " " << problem_newton.interface_error_qw
+                            << std::endl;
+          }
+          newton_dat_file.close();
         }
       }
     }

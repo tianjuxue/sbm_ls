@@ -6,7 +6,9 @@ H1_flag = 1
 Linf_flag = 2
 SD_flag = 3
 interface_flag = 4
-total_number_errors = 5
+total_number_errors_2d = 5
+
+interface_flag_qw = 5
 
 NARROW_BAND = 0
 GLOBAL = 1
@@ -27,7 +29,7 @@ def convergence_plot_single(case_number, pore_number, domain_flag, error_flag, s
         label_name = '$\\\\mathcal{{E}}_{L^{{\\\\infty}}}$'
     elif error_flag == SD_flag:
         label_name = '$\\\\mathcal{{E}}_{{\\\\rm{{SD}}}}$'
-    elif error_flag == interface_flag:
+    elif error_flag == interface_flag or error_flag == interface_flag_qw:
         label_name = '$\\\\mathcal{{E}}_{{\\\\rm{{Int}}}}$'
     else:
         assert 0, "Wrong error_flag!"
@@ -69,16 +71,16 @@ def convergence_plot_single(case_number, pore_number, domain_flag, error_flag, s
     gp.c('set ylabel offset 1,0')
 
     if case_number == PORE_CASE:
-        newton_file_name = 'data/dat/convergence/case_0/pore_{}_newton.dat'.format(pore_number)
-        bs_file_name = 'data/dat/convergence/case_0/pore_{}_bs.dat'.format(pore_number)
-        laplace_file_name = 'data/dat/convergence/case_0/pore_{}_laplace.dat'.format(pore_number)
+        newton_file_name = 'data/dat/convergence/case_{}/pore_{}_newton.dat'.format(case_number, pore_number)
+        bs_file_name = 'data/dat/convergence/case_{}/pore_{}_bs.dat'.format(case_number, pore_number)
+        laplace_file_name = 'data/dat/convergence/case_{}/pore_{}_laplace.dat'.format(case_number, pore_number)
 
         newton_array = np.loadtxt(newton_file_name)
         bs_array = np.loadtxt(bs_file_name)
         laplace_array = np.loadtxt(laplace_file_name)
 
-        newton_array = newton_array[:, 0:total_number_errors + 1] if domain_flag == GLOBAL else newton_array[:, total_number_errors + 1:]
-        bs_array = bs_array[:, 0:total_number_errors + 1] if domain_flag == GLOBAL else bs_array[:, total_number_errors + 1:]
+        newton_array = newton_array[:, 0:total_number_errors_2d + 1] if domain_flag == NARROW_BAND else newton_array[:, total_number_errors_2d + 1:]
+        bs_array = bs_array[:, 0:total_number_errors_2d + 1] if domain_flag == NARROW_BAND else bs_array[:, total_number_errors_2d + 1:]
 
         h_ratio = np.log((newton_array[0, 0] / newton_array[-1, 0]))
         newton_ratio = np.log((newton_array[0, error_flag + 1] / newton_array[-1, error_flag + 1]))
@@ -89,16 +91,8 @@ def convergence_plot_single(case_number, pore_number, domain_flag, error_flag, s
         bs_ratio = "$\\\\phi^0 - \\\\boldsymbol{{M}}_b$ (OC={:.3f})".format(bs_ratio / h_ratio)
         laplace_ratio = "$\\\\psi - \\\\boldsymbol{{M}}_a$ (OC={:.3f})".format(laplace_ratio / h_ratio)
 
-        error_flag_gnu = error_flag + 2 if domain_flag == GLOBAL else error_flag + total_number_errors + 3
-        if domain_flag == GLOBAL:
-            plotting_command = 'plot "{}" u 1:{} title "{}" lc "red" pt 5 ps 2 lt 1 lw 4 , \
-                "{}" u 1:{} title "{}" lc "blue" pt 7 ps 2 lt 1 lw 4'.format(newton_file_name,
-                                                                            error_flag_gnu,
-                                                                            newton_ratio,
-                                                                            bs_file_name,
-                                                                            error_flag_gnu,
-                                                                            bs_ratio)
-        else:        
+        error_flag_gnu = error_flag + 2 if domain_flag == NARROW_BAND else error_flag + total_number_errors_2d + 3
+        if domain_flag == NARROW_BAND:
             plotting_command = 'plot "{}" u 1:{} title "{}" lc "red" pt 5 ps 2 lt 1 lw 4 , \
                 "{}" u 1:{} title "{}" lc "green" pt 9 ps 2 lt 1 lw 4, \
                 "{}" u 1:{} title "{}" lc "blue" pt 7 ps 2 lt 1 lw 4'.format(newton_file_name,
@@ -109,9 +103,25 @@ def convergence_plot_single(case_number, pore_number, domain_flag, error_flag, s
                                                                             laplace_ratio,
                                                                             bs_file_name,
                                                                             error_flag_gnu,
+                                                                            bs_ratio)            
+        else:        
+            plotting_command = 'plot "{}" u 1:{} title "{}" lc "red" pt 5 ps 2 lt 1 lw 4 , \
+                "{}" u 1:{} title "{}" lc "blue" pt 7 ps 2 lt 1 lw 4'.format(newton_file_name,
+                                                                            error_flag_gnu,
+                                                                            newton_ratio,
+                                                                            bs_file_name,
+                                                                            error_flag_gnu,
                                                                             bs_ratio)
     else:
-        pass
+        newton_file_name = 'data/dat/convergence/case_{}/newton.dat'.format(case_number)
+        newton_array = np.loadtxt(newton_file_name)
+        h_ratio = np.log((newton_array[0, 0] / newton_array[-1, 0]))
+        newton_ratio = np.log((newton_array[0, error_flag + 1] / newton_array[-1, error_flag + 1]))
+        newton_ratio = "$\\\\phi^0 - \\\\boldsymbol{{M}}_a$ (OC={:.3f})".format(newton_ratio / h_ratio)
+        error_flag_gnu = error_flag + 2
+        plotting_command = 'plot "{}" u 1:{} title "{}" lc "red" pt 5 ps 2 lt 1 lw 4'.format(newton_file_name,
+                                                                                             error_flag_gnu,
+                                                                                             newton_ratio)
 
     gp.c(plotting_command)
     gp.c('set out')
