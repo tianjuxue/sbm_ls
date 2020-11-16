@@ -40,7 +40,7 @@ def convergence_plot_single(case_number, pore_number, domain_flag, error_flag, s
         saving_path = 'set output "data/latex/case_{}/pore_{}_domain_flag_{}_error_flag_{}.tex"'.format(case_number, 
             pore_number, domain_flag, error_flag)
     else:
-        saving_path = 'set output "data/latex/case_{}/domain_flag_{}_error_flag_{}.tex"'.format(case_number, error_flag)
+        saving_path = 'set output "data/latex/case_{}/error_flag_{}.tex"'.format(case_number, error_flag)
 
     if debug == True:
         saving_path = 'set output "example.tex"'
@@ -139,19 +139,24 @@ def convergence_plot_single(case_number, pore_number, domain_flag, error_flag, s
 
 def produce_plots():
     for domain_flag in range(0, 2):
-        convergence_plot_single(case_number, CIRCLE_PORE, domain_flag, L2_flag)
-        convergence_plot_single(case_number, CIRCLE_PORE, domain_flag, H1_flag)
-        convergence_plot_single(case_number, CIRCLE_PORE, domain_flag, Linf_flag)
+        convergence_plot_single(PORE_CASE, CIRCLE_PORE, domain_flag, L2_flag)
+        convergence_plot_single(PORE_CASE, CIRCLE_PORE, domain_flag, H1_flag)
+        convergence_plot_single(PORE_CASE, CIRCLE_PORE, domain_flag, Linf_flag)
         total_pore_number = 9
         for i in range(total_pore_number):
-            convergence_plot_single(case_number, i, domain_flag, SD_flag)
-            convergence_plot_single(case_number, i, domain_flag, interface_flag)
+            convergence_plot_single(PORE_CASE, i, domain_flag, SD_flag)
+            convergence_plot_single(PORE_CASE, i, domain_flag, interface_flag)
 
-        
+    
+    convergence_plot_single(SPHERE_CASE, None, NARROW_BAND, SD_flag)
+    convergence_plot_single(SPHERE_CASE, None, NARROW_BAND, interface_flag)
+    convergence_plot_single(SPHERE_CASE, None, NARROW_BAND, L2_flag)
+    convergence_plot_single(SPHERE_CASE, None, NARROW_BAND, H1_flag)
+    convergence_plot_single(SPHERE_CASE, None, NARROW_BAND, Linf_flag)
+
+    convergence_plot_single(TORUS_CASE, None, NARROW_BAND, SD_flag)
+    convergence_plot_single(TORUS_CASE, None, NARROW_BAND, interface_flag_qw)
 
 if __name__ == '__main__':
-    case_number = PORE_CASE
-    domain_flag = NARROW_BAND
-    # convergence_plot_single(case_number, 4, domain_flag, interface_flag, size=0.65, debug=False)
- 
+    # convergence_plot_single(PORE_CASE, 4, NARROW_BAND, interface_flag, size=0.65, debug=False)
     produce_plots() 

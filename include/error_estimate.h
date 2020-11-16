@@ -282,7 +282,7 @@ double compute_interface_error_sphere(hp::DoFHandler<dim> &dof_handler, Vector<d
   }
 
   std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(RADIUS, 2) << std::endl;
-  std::cout << "  surface_integral is " << surface_integral << std::endl;
+  std::cout << "  sqrt of surface_integral is " << std::sqrt(surface_integral) << std::endl;
   return std::sqrt(surface_integral);
 }
 
@@ -319,7 +319,7 @@ double compute_interface_error_qw(hp::DoFHandler<dim> &dof_handler, Vector<doubl
   }
   input_weights_file.close();
   input_quads_file.close();
-  std::cout << "  Read in " << weights.size() << " quad points and " <<   weights.size() << " weights" << std::endl;
+  std::cout << "  Read in " << weights.size() << " quad points and " << weights.size() << " weights" << std::endl;
 
   std::vector<double> quad_values(weights.size(), 0.);
   Functions::FEFieldFunction<dim, hp::DoFHandler<dim>, Vector<double>> fe_field_function(dof_handler, solution);
@@ -331,12 +331,18 @@ double compute_interface_error_qw(hp::DoFHandler<dim> &dof_handler, Vector<doubl
   double area = 0;
   for (unsigned i = 0; i < weights.size(); ++i)
   {
+    // if (i % 1000 == 0)
+    // {
+    //   std::cout << std::endl;
+    //   std::cout << "  quad value " << quad_values[i] << std::endl;
+    //   std::cout << "  analytical value " << torus_function_value(quad_points[i]) << std::endl;
+    // }
     surface_integral += pow(quad_values[i], 2) * weights[i];
     area += weights[i];
   }
 
-  std::cout << "  Area is " << area << " it should be " << 4 * M_PI * pow(RADIUS, 2) << std::endl;
-  std::cout << "  surface_integral is " << surface_integral << std::endl;
+  std::cout << "  Area is " << area << " sphere is " << 4 * M_PI * pow(RADIUS, 2) << std::endl;
+  std::cout << "  sqrt of surface_integral is " << std::sqrt(surface_integral) << std::endl;
   return std::sqrt(surface_integral);
 }
 
