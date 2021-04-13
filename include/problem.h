@@ -8,7 +8,7 @@ class NonlinearProblem
 public:
   NonlinearProblem(unsigned int case_flag_ = PORE_CASE,
                    unsigned int domain_flag_ = NARROW_BAND,
-                   unsigned int refinement_level_ = 8,
+                   unsigned int refinement_level_ = 5,
                    unsigned int refinement_increment_ = 1,
                    unsigned int band_width_ = 1,
                    unsigned int map_choice_ = MAP_NEWTON,
@@ -27,11 +27,13 @@ public:
   double SD_error;
   double interface_error_parametric;
   double interface_error_qw;
+  double volume_error;
 
 private:
   void cache_interface();
   void make_constraints();
   void narrow_band_helper(hp::DoFHandler<dim> &dof_handler, int level);
+  void refine_to_same_level(hp::DoFHandler<dim> &dof_handler, int coarse_level, int fine_level);
   void setup_system();
   double compute_residual();
   void assemble_system_picard();
@@ -91,6 +93,7 @@ NonlinearProblem<dim>::NonlinearProblem(unsigned int case_flag_,
   SD_error(0.),
   interface_error_parametric(0.),
   interface_error_qw(0.),
+  volume_error(0.),
   dof_handler(triangulation),
   alpha(1e1), // Magic number, may affect numerical instability, 1e1 for 2D
   constraint_type(constraint_type_),
@@ -198,6 +201,11 @@ void NonlinearProblem<dim>::cache_interface()
             function_value = torus_function_value<dim>;
             function_gradient = torus_function_gradient<dim>;
           }
+          else if (case_flag == PEANUT_CASE)
+          {
+            function_value = peanut_function_value<dim>;
+            function_gradient = peanut_function_gradient<dim>;
+          }
           else if (case_flag == FEM_CASE)
           {
             // Using FEFieldFunction can be faster than functions defined under VectorTools (e.g., point_value)
@@ -214,13 +222,9 @@ void NonlinearProblem<dim>::cache_interface()
             function_value = [&fe_field_function](const Point<dim> &point) {return fe_field_function.value(point);};
             function_gradient = [&fe_field_function](const Point<dim> &point) {return fe_field_function.gradient(point);};
           }
-          else if (case_flag == IMAGE_CASE)
-          {
-            assert(0 && "Image case not implemented yet!");
-          }
           else
           {
-            assert(0 && "case_flag should only be 0, 1 or 2");
+            assert(0 && "Other cases not implemented!");
           }
 
           if (map_choice == MAP_NEWTON)
@@ -334,13 +338,15 @@ void NonlinearProblem<dim>::narrow_band_helper(hp::DoFHandler<dim> &dof_handler,
           level_set_value = sphere_function_value(cell->vertex(v));
         else if (case_flag == TORUS_CASE)
           level_set_value = torus_function_value(cell->vertex(v));
+        else if (case_flag == PEANUT_CASE)
+          level_set_value = peanut_function_value(cell->vertex(v));
         else if (case_flag == FEM_CASE)
         {
           // To be implemented...
           // level_set_value = solution(cell->vertex_dof_index(v, 0, 0));
         }
-        else if (case_flag == IMAGE_CASE)
-          assert(0 && "Image case not implemented yet!");
+        else
+          assert(0 && "Other cases not implemented!");
         if (level_set_value >= 0)
           positive_flag = true;
         else
@@ -444,6 +450,36 @@ void NonlinearProblem<dim>::narrow_band_helper(hp::DoFHandler<dim> &dof_handler,
 }
 
 
+// The purpose of doing this instead of just using a simple global refinement is to
+// keep record of narrow band region in the context of global refinement.
+// So this will enable us to answer the review's question about fair comparison
+// between narrow band and global (using the same volume for integral when computing error)
+template <int dim>
+void NonlinearProblem<dim>::refine_to_same_level(hp::DoFHandler<dim> &dof_handler, int coarse_level, int fine_level)
+{
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    cell->clear_refine_flag();
+
+  for (int level = coarse_level; level < fine_level; level++)
+  {
+    for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      if (cell->level() == level)
+        cell->set_refine_flag();
+    }
+    triangulation.execute_coarsening_and_refinement();
+  }
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+  {
+    if (cell->material_id() == FLAG_IN_BAND || cell->material_id() == FLAG_OUT_BAND || cell->material_id() == FLAG_MID_BAND)
+      assert(cell->active_fe_index() == 0 && "narrow_band cells should have active_fe_index to be 0");
+    else
+      cell->set_active_fe_index(1);
+  }
+}
+
+
 template <int dim>
 void NonlinearProblem<dim>::setup_system()
 {
@@ -474,20 +510,17 @@ void NonlinearProblem<dim>::setup_system()
   std::cout << "  Strat grid" << std::endl;
 
   GridGenerator::hyper_cube(triangulation, -DOMAIN_SIZE, DOMAIN_SIZE);
+
   triangulation.refine_global(refinement_level);
-
   narrow_band_helper(dof_handler, refinement_level);
-  if (domain_flag == NARROW_BAND)
+  for (unsigned int i = 0; i < refinement_increment; ++i)
   {
-    for (unsigned int i = 0; i < refinement_increment; ++i)
-    {
-      triangulation.execute_coarsening_and_refinement();
-      narrow_band_helper(dof_handler, refinement_level + i + 1);
-    }
+    triangulation.execute_coarsening_and_refinement();
+    narrow_band_helper(dof_handler, refinement_level + i + 1);
   }
-  else
-    assert(refinement_increment == 0 && "Warning: It doesn't make any sense to set refinement_increment as nonzero for GLOBAL flag.");
 
+  if (domain_flag == GLOBAL)
+    refine_to_same_level(dof_handler, refinement_level, refinement_level + refinement_increment);
 
   dof_handler.distribute_dofs(fe_collection);
 
@@ -509,8 +542,6 @@ void NonlinearProblem<dim>::setup_system()
             << 4 / pow(2, refinement_level + refinement_increment) * sqrt(dim) << std::endl;
 
   std::cout << "  End grid" << std::endl;
-
-
 
 }
 
@@ -777,6 +808,10 @@ void NonlinearProblem<dim>::assemble_system_projection()
       {
         torus_function(function_values, fe_values.get_quadrature_points(), n_q_points);
       }
+      else if (case_flag == PEANUT_CASE)
+      {
+        peanut_function(function_values, fe_values.get_quadrature_points(), n_q_points);
+      }
       else
       {
         assert(0 && "Other cases not implemented yet!");
@@ -876,36 +911,52 @@ void NonlinearProblem<dim>::error_analysis()
   SD_error = compute_SD_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
   std::cout << "  Finish computing SD_error: " << SD_error << std::endl;
 
+  // std::cout << "  Start computing volume error..." << std::endl;
+  // volume_error = compute_volume_error(dof_handler, solution, fe_collection, domain_flag, case_flag);
+  // std::cout << "  Finish computing volume error: " << volume_error << std::endl;
+
   std::string quads_dat_filename = "../data/dat/surface_integral/sbi_case_" + Utilities::int_to_string(case_flag, 1) + "_quads.dat";
   std::string weights_dat_filename = "../data/dat/surface_integral/sbi_case_" + Utilities::int_to_string(case_flag, 1) + "_weights.dat";
 
   if (case_flag == PORE_CASE)
   {
+    volume_error = compute_volume_error(dof_handler, solution, fe_collection, domain_flag, case_flag);
     interface_error_parametric = compute_interface_error_pore(dof_handler, solution, c1, c2);
     if (pore_number == CIRCLE_PORE)
     {
-      L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
-      L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag);
-      H1_error = compute_H1_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
+      L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag, case_flag);
+      L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag, case_flag);
+      H1_error = compute_H1_error(dof_handler, solution, fe_collection, q_collection, domain_flag, case_flag);
+      std::cout << "  L_infty_error " << L_infty_error << std::endl;
     }
   }
   else if (case_flag == STAR_CASE)
   {
-    //TODO: something like
+    // TODO: something like
     // interface_error_parametric = compute_interface_error_pore(dof_handler, solution);
   }
   else if (case_flag == SPHERE_CASE)
   {
+    volume_error = compute_volume_error(dof_handler, solution, fe_collection, domain_flag, case_flag);
     interface_error_parametric = compute_interface_error_sphere(dof_handler, solution);
     interface_error_qw = compute_interface_error_qw(dof_handler, solution, quads_dat_filename, weights_dat_filename);
-    L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
-    L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag);
-    H1_error = compute_H1_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
+    L2_error = compute_L2_error(dof_handler, solution, fe_collection, q_collection, domain_flag, case_flag);
+    L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag, case_flag);
+    H1_error = compute_H1_error(dof_handler, solution, fe_collection, q_collection, domain_flag, case_flag);
   }
   else if (case_flag == TORUS_CASE)
   {
     interface_error_qw = compute_interface_error_qw(dof_handler, solution, quads_dat_filename, weights_dat_filename);
   }
+  else if (case_flag == PEANUT_CASE)
+  {
+    L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag, case_flag);
+    std::cout << "  L_infty_error " << L_infty_error << std::endl;
+    interface_error_parametric = compute_interface_error_peanut(dof_handler, solution);
+    std::cout << "  surface error " << interface_error_parametric << std::endl;
+  }
+  else
+    assert(0 && "Other case not implemented!");
 
   std::string vtk_filename = "../data/vtk/case_" + Utilities::int_to_string(case_flag, 1) +
                              "/narrow_band_" + Utilities::int_to_string(domain_flag, 1) +
@@ -958,12 +1009,15 @@ void NonlinearProblem<dim>::run()
   std::cout << "  Start to solve..." << std::endl;
   solve_picard();
   std::cout << "  End of solve" << std::endl;
-  output_cycle_vtk(0);
+
+  unsigned int picard_step = 0;
+  output_cycle_vtk(picard_step);
+  if (case_flag == PEANUT_CASE)
+    write_narrow_band_solutions(dof_handler, solution, fe_collection, case_flag, refinement_level + refinement_increment, picard_step);
 
   constraint_type = TRIVIAL_CONSTRAINT;
   make_constraints();
 
-  unsigned int picard_step = 0;
   double res = 1e3;
   while (res > 1e-8 && picard_step < 1000)
   {
@@ -984,8 +1038,27 @@ void NonlinearProblem<dim>::run()
 
     old_solution = solution;
     picard_step++;
+
     // output_cycle_vtk(picard_step);
     output_cycle_vtk(1);
+
+    if (case_flag == PEANUT_CASE)
+    {
+      res = 1e3; // reset res=1e3 because we always want 1000 steps in the PEANUT_CASE
+      write_narrow_band_solutions(dof_handler, solution, fe_collection, case_flag, refinement_level + refinement_increment, picard_step);
+    }
+
+    // if (picard_step % 10 == 0)
+    // {
+
+    //   L_infty_error = compute_Linfty_error(dof_handler, solution, fe_collection, domain_flag, case_flag);
+    //   std::cout << "  L_infty_error " << L_infty_error << std::endl;
+
+    //   interface_error_parametric = compute_interface_error_peanut(dof_handler, solution);
+    //   // interface_error_parametric = compute_interface_error_pore(dof_handler, solution, c1, c2);
+    //   std::cout << "  surface error " << interface_error_parametric << std::endl;
+
+    // }
 
     // double L2_error = compute_l2_error(dof_handler, solution, fe_collection, q_collection, domain_flag);
     // std::cout << "  L2 error is " << L2_error << std::endl;

@@ -70,6 +70,88 @@ double torus_function_value(const Point<dim> &point)
 }
 
 
+template <int dim>
+double square_function_value(const Point<dim> &point)
+{
+  double length = 0.8;
+  double x = point[0];
+  double y = point[1];
+  double value;
+  if (y >= -x && y <= x && y >= -length && y <= length)
+    value = x - length;
+  if (y >= -x && y >= x && x >= -length && x <= length)
+    value = y - length;
+  if (y <= -x && y >= x && y >= -length && y <= length)
+    value = -length - x;
+  if (y <= -x && y <= x && x >= -length && x <= length)
+    value = -length - y;
+  if (x >= length && y >= length)
+    value = sqrt(pow(x - length, 2) + pow(y - length, 2));
+  if (x <= -length && y >= length)
+    value = sqrt(pow(x + length, 2) + pow(y - length, 2));
+  if (x <= -length && y <= -length)
+    value = sqrt(pow(x + length, 2) + pow(y + length, 2));
+  if (x >= length && y <= -length)
+    value = sqrt(pow(x - length, 2) + pow(y + length, 2));
+  return 2 * value;
+}
+
+
+template <int dim>
+double peanut_phi_function_value(const Point<dim> &point)
+{
+  double r = 1.;
+  double a = 0.7;
+  double b = sqrt(pow(r, 2.) - pow(a, 2.));
+  double x = point[0];
+  double y = point[1];
+  double value;
+  if ((a - x) / sqrt((pow(a - x, 2.) + pow(y, 2.))) >= a / r && (a + x) / sqrt((pow(a + x, 2.) + pow(y, 2.))) >= a / r)
+  {
+    if (y >= 0)
+      value = -sqrt(pow(x, 2.) +  pow(y - b, 2.));
+    else
+      value = -sqrt(pow(x, 2.) +  pow(y + b, 2.));
+  }
+  else
+  {
+    if (x >= 0)
+      value = sqrt(pow(x - a, 2.) + pow(y, 2.)) - r;
+    else
+      value = sqrt(pow(x + a, 2.) + pow(y, 2.)) - r;
+  }
+  return value;
+}
+
+
+// quadratic 
+template <int dim>
+double peanut_q_function_value(const Point<dim> &point)
+{
+  double x = point[0];
+  double y = point[1];
+  return pow(x - 1, 2.) + pow(y - 1, 2.) + 0.1;
+}
+
+
+// sin
+template <int dim>
+double peanut_s_function_value(const Point<dim> &point)
+{
+  double k = 6;
+  double x = point[0];
+  double y = point[1];
+  return 0.5 * sin(k * M_PI * x) * sin(k * M_PI * y) + 1;
+}
+
+
+template <int dim>
+double peanut_function_value(const Point<dim> &point)
+{
+  return peanut_phi_function_value(point) * peanut_s_function_value(point);
+}
+
+
 // Mathematica code
 // Grad[x^2 + y^2 - (1 + c1 * Cos[4*ArcTan[y/x]] +  c2 * Cos[8*ArcTan[y/x]]), {x, y}]
 template <int dim>
@@ -132,6 +214,132 @@ Tensor<1, dim> torus_function_gradient(const Point<dim> &point)
 
 
 template <int dim>
+Tensor<1, dim> square_function_gradient(const Point<dim> &point)
+{
+  double length = 0.8;
+  double x = point[0];
+  double y = point[1];
+  Tensor<1, dim> gradient;
+  if (y >= -x && y <= x && y >= -length && y <= length)
+  {
+    gradient[0] = 1;
+    gradient[1] = 0;
+  }
+  if (y >= -x && y >= x && x >= -length && x <= length)
+  {
+    gradient[0] = 0;
+    gradient[1] = 1;
+  }
+  if (y <= -x && y >= x && y >= -length && y <= length)
+  {
+    gradient[0] = -1;
+    gradient[1] = 0;
+  }
+  if (y <= -x && y <= x && x >= -length && x <= length)
+  {
+    gradient[0] = 0;
+    gradient[1] = -1;
+  }
+  if (x >= length && y >= length)
+  {
+    gradient[0] = x - length;
+    gradient[1] = y - length;
+  }
+  if (x <= -length && y >= length)
+  {
+    gradient[0] = x + length;
+    gradient[1] = y - length;
+  }
+  if (x <= -length && y <= -length)
+  {
+    gradient[0] = x + length;
+    gradient[1] = y + length;
+  }
+  if (x >= length && y <= -length)
+  {
+    gradient[0] = x - length;
+    gradient[1] = y + length;
+  }
+  gradient /= gradient.norm();
+  return 2 * gradient;
+}
+
+
+template <int dim>
+Tensor<1, dim> peanut_phi_function_gradient(const Point<dim> &point)
+{
+  double r = 1.;
+  double a = 0.7;
+  double b = sqrt(pow(r, 2.) - pow(a, 2.));
+  double x = point[0];
+  double y = point[1];
+  Tensor<1, dim> gradient;
+  if ((a - x) / sqrt((pow(a - x, 2.) + pow(y, 2.))) >= a / r && (a + x) / sqrt((pow(a + x, 2.) + pow(y, 2.))) >= a / r)
+  {
+    if (y >= 0)
+    {
+      gradient[0] = -x;
+      gradient[1] = b - y;
+    }
+    else
+    {
+      gradient[0] = -x;
+      gradient[1] = -b - y;
+    }
+  }
+  else
+  {
+    if (x >= 0)
+    {
+      gradient[0] = x - a;
+      gradient[1] = y;
+    }
+    else
+    {
+      gradient[0] = x + a;
+      gradient[1] = y;
+    }
+  }
+  gradient /= gradient.norm();
+  return gradient;
+}
+
+
+template <int dim>
+Tensor<1, dim> peanut_q_function_gradient(const Point<dim> &point)
+{
+  double x = point[0];
+  double y = point[1];
+  Tensor<1, dim> gradient;
+  gradient[0] = 2 * (x - 1);
+  gradient[1] = 2 * (y - 1);
+  return gradient;
+}
+
+
+template <int dim>
+Tensor<1, dim> peanut_s_function_gradient(const Point<dim> &point)
+{
+  double k = 6;
+  double x = point[0];
+  double y = point[1];
+  Tensor<1, dim> gradient;
+  gradient[0] = k * M_PI / 2. * cos(k * M_PI * x) * sin (k * M_PI * y);
+  gradient[1] = k * M_PI / 2. * sin(k * M_PI * x) * cos (k * M_PI * y);
+  return gradient;
+}
+
+
+template <int dim>
+Tensor<1, dim> peanut_function_gradient(const Point<dim> &point)
+{
+  return peanut_s_function_value(point) * peanut_phi_function_gradient(point) +
+         peanut_phi_function_value(point) * peanut_s_function_gradient(point);
+}
+
+
+
+template <int dim>
 void pore_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length, double c1, double c2)
 {
   for (int i = 0; i < length; ++i)
@@ -169,6 +377,73 @@ void torus_function(std::vector<double> &u, const std::vector<Point<dim>> &point
     u[i] = torus_function_value(points[i]);
   }
 }
+
+template <int dim>
+void square_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    u[i] = square_function_value(points[i]);
+  }
+}
+
+
+template <int dim>
+void peanut_function(std::vector<double> &u, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    u[i] = peanut_function_value(points[i]);
+  }
+}
+
+
+template <int dim>
+void circle_exact_solution_value(std::vector<double> &u_e, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    u_e[i] =  sqrt(points[i].square()) - 1;
+  }
+}
+
+
+template <int dim>
+void circle_exact_solution_gradient(std::vector<Tensor<1, dim>> &g_e, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    Tensor<1, dim> gradient;
+    for (int d = 0; d < dim; ++d)
+    {
+      gradient[d] = points[i][d] / sqrt(points[i].square());
+    }
+    g_e[i] =  gradient;
+  }
+}
+
+
+template <int dim>
+void peanut_exact_solution_value(std::vector<double> &u_e, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    u_e[i] = peanut_phi_function_value(points[i]);
+  }
+}
+
+
+template <int dim>
+void peanut_exact_solution_gradient(std::vector<Tensor<1, dim>> &g_e, const std::vector<Point<dim>> &points, int length)
+{
+  for (int i = 0; i < length; ++i)
+  {
+    Tensor<1, dim> gradient;
+    g_e[i] =  peanut_phi_function_gradient(points[i]);
+  }
+}
+
+
 
 
 template <int dim>
@@ -239,7 +514,8 @@ void sbm_map_newton(std::vector<Point<dim>> &target_points,
         res = abs(phi);
         step++;
       }
-      // std::cout << "  End of bad point converge at step " << step << " mapped point " << target_point << " phi value " << phi << std::endl;
+      std::cout << "  End of bad point " << points[i] << " converge at step " << step
+                << " mapped point " << target_point << " phi value " << phi << std::endl;
     }
 
     target_points[i] = target_point;
@@ -333,6 +609,8 @@ void vec2num_grads(std::vector< std::vector< Tensor<1, dim> >> &vec,
   }
 }
 
+
+// These functions are deprecated since support points don't work well with FE_Nothing
 template <int dim>
 void set_support_points(hp::DoFHandler<dim> &dof_handler, std::vector<Point<dim>> &support_points)
 {

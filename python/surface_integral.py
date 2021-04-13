@@ -251,12 +251,12 @@ def generate_cut_elements():
         print("refinement_level {}, length of inds {}".format(refinement_level + 1, len(ids_cut)))
 
     print("len of total_refinement_levels {}".format(len(total_refinement_levels)))
-    np.savez('data/numpy/{}_cut_element_ids.npz'.format(surface), ids=total_ids, refinement_level=total_refinement_levels, allow_pickle=True)
+    np.savez('data/numpy/sbi/{}_cut_element_ids.npz'.format(surface), ids=total_ids, refinement_level=total_refinement_levels, allow_pickle=True)
     return total_ids, total_refinement_levels
 
 
 def main():
-    data = np.load('data/numpy/{}_cut_element_ids.npz'.format(surface), allow_pickle=True)
+    data = np.load('data/numpy/sbi/{}_cut_element_ids.npz'.format(surface), allow_pickle=True)
     total_ids = data['ids']
     total_refinement_levels = data['refinement_level']
     
@@ -433,7 +433,7 @@ def process_face(face, base, h, quad_level):
 
 
 def compute_qw(quad_levels=[3], mesh_index=2, name='sbi_tests'):
-    data = np.load('data/numpy/{}_cut_element_ids.npz'.format(surface), allow_pickle=True)
+    data = np.load('data/numpy/sbi/{}_cut_element_ids.npz'.format(surface), allow_pickle=True)
     total_ids = data['ids']
     total_refinement_levels = data['refinement_level']
 
@@ -494,7 +494,7 @@ def convergence_tests(test_function_number=0):
 
     mesh = []
     for mesh_index in mesh_indices:
-        data = np.load('data/numpy/{}_cut_element_ids.npz'.format(surface), allow_pickle=True)
+        data = np.load('data/numpy/sbi/{}_cut_element_ids.npz'.format(surface), allow_pickle=True)
         total_ids = data['ids']
         total_refinement_levels = data['refinement_level']
         ids_cut = total_ids[mesh_index]
